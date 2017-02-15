@@ -1,0 +1,1247 @@
+# Copyright © 2017 Jonathan Storm <jds@idio.link>
+# This work is free. You can redistribute it and/or modify it under the
+# terms of the Do What The Fuck You Want To Public License, Version 2,
+# as published by Sam Hocevar. See the COPYING.WTFPL file for more details.
+
+defmodule Firewalk.Cisco.ASA_8_3 do
+  require Logger
+
+  alias Firewalk.Cisco.ASA_8_3.Grammar
+
+  defmodule Interface do
+    defstruct      id: nil,
+                 vlan: nil,
+               nameif: nil,
+       security_level: nil,
+           ip_address: nil,
+      standby_address: nil,
+          description: nil
+
+    @type vlan_id :: 1..4094
+
+    @type t :: %__MODULE__{
+                   id: String.t,
+                 vlan: nil | vlan_id,
+               nameif: nil | String.t,
+       security_level: 0..100,
+           ip_address: NetAddr.t,
+      standby_address: nil | NetAddr.t,
+          description: nil | String.t
+
+    }
+  end
+
+  defmodule NetworkObject do
+    defstruct name: nil, value: nil, description: nil
+
+    @type t :: %__MODULE__{
+             name: String.t,
+            value: {nil | :v4 | :v6, URI.t}
+                 | NetAddr.t
+                 | {NetAddr.t, NetAddr.t},
+      description: nil | String.t,
+    }
+  end
+
+  defmodule ServiceObject do
+    defstruct name: nil,
+          protocol: nil,
+            source: nil,
+       destination: nil,
+       description: nil
+
+    @type   port_num :: 1..65535
+    @type  icmp_type :: 0..255
+    @type   ip_proto :: 0..255
+    @type port_match :: {:eq | :gt | :lt | :neq, port_num}
+                      | {:range, port_num, port_num}
+                      | icmp_type
+
+    @type t :: %__MODULE__{
+             name: nil | String.t,
+         protocol: ip_proto | :tcp_udp,
+           source: nil | port_match,
+      destination: nil | port_match,
+      description: nil | String.t,
+    }
+  end
+
+  defmodule NetworkGroup do
+    defstruct name: nil, values: nil, description: nil
+
+    @type object_or_group_ref :: String.t
+
+    @type t :: %__MODULE__{
+             name: String.t,
+           values: [NetAddr.t | object_or_group_ref],
+      description: nil | String.t,
+    }
+  end
+
+  defmodule AbsoluteTimeRange do
+    defstruct name: nil, start: nil, end: nil
+
+    @type t :: %__MODULE__{
+       name: String.t,
+      start: nil | NaiveDateTime.t,
+        end: nil | NaiveDateTime.t,
+    }
+  end
+
+  defmodule PeriodicTimeRange do
+    defstruct name: nil, days: nil, from: nil, to: nil
+
+    @type day_of_week :: 1..7
+
+    @type t :: %__MODULE__{
+      name: String.t,
+      days: :daily | :weekdays | :weekend | [day_of_week],
+      from: Time.t,
+        to: Time.t,
+    }
+  end
+
+  defmodule ICMPGroup do
+    defstruct name: nil, values: nil, description: nil
+
+    @type icmp_type :: 0..255
+    @type group_ref :: String.t
+
+    @type t :: %__MODULE__{
+             name: String.t,
+           values: [icmp_type | group_ref],
+      description: nil | String.t,
+    }
+  end
+
+  defmodule ServiceProtocolGroup do
+    defstruct name: nil, protocol: nil, values: nil, description: nil
+
+    @type   port_num :: 1..65535
+    @type port_match :: {:eq, port_num}
+                      | {:range, port_num, port_num}
+
+    @type t :: %__MODULE__{
+             name: String.t,
+         protocol: :tcp | :udp | :tcp_udp,
+           values: [port_match],
+      description: nil | String.t,
+    }
+  end
+
+  defmodule ServiceGroup do
+    defstruct name: nil, values: nil, description: nil
+
+    @type      service_object :: Firewalk.Cisco.ASA.ServiceObject.t
+    @type object_or_group_ref :: String.t
+
+    @type t :: %__MODULE__{
+             name: String.t,
+           values: [service_object | object_or_group_ref],
+      description: nil | String.t,
+    }
+  end
+
+  defmodule ProtocolGroup do
+    defstruct name: nil, values: nil, description: nil
+
+    @type  ip_proto :: 0..255
+    @type group_ref :: String.t
+
+    @type t :: %__MODULE__{
+             name: String.t,
+           values: [ip_proto | group_ref],
+      description: nil | String.t,
+    }
+  end
+
+  defmodule StaticGlobalNAT do
+    defstruct    real_if: nil,
+               mapped_if: nil,
+              after_auto: nil,
+             real_source: nil,
+           mapped_source: nil,
+        real_destination: nil,
+      mapped_destination: nil,
+                     dns: nil,
+                 service: nil,
+              net_to_net: nil,
+          unidirectional: nil,
+            no_proxy_arp: nil,
+            route_lookup: nil,
+                inactive: nil,
+             description: nil
+
+    @type t :: %__MODULE__{
+                 real_if: nil | String.t,
+               mapped_if: nil | String.t,
+              after_auto: boolean,
+             real_source: String.t,
+           mapped_source: String.t | {:interface, nil | :ipv6},
+        real_destination: nil | String.t,
+      mapped_destination: nil | String.t | {:interface, nil | :ipv6},
+                     dns: boolean,
+                 service: nil | {String.t, String.t},
+              net_to_net: boolean,
+          unidirectional: boolean,
+            no_proxy_arp: boolean,
+            route_lookup: boolean,
+                inactive: boolean,
+             description: nil | String.t,
+    }
+  end
+
+  defmodule StaticObjectNAT do
+    defstruct    real_if: nil,
+               mapped_if: nil,
+           mapped_source: nil,
+              net_to_net: nil,
+                     dns: nil,
+            no_proxy_arp: nil,
+            route_lookup: nil,
+                protocol: nil,
+               real_port: nil,
+             mapped_port: nil
+
+    @type port_num :: 1..65535
+
+    @type t :: %__MODULE__{
+                 real_if: nil | String.t,
+               mapped_if: nil | String.t,
+           mapped_source: NetAddr.t | String.t | {:interface, nil | :ipv6},
+              net_to_net: boolean,
+                     dns: boolean,
+            no_proxy_arp: boolean,
+            route_lookup: boolean,
+                protocol: :tcp | :udp,
+               real_port: port_num,
+             mapped_port: port_num,
+    }
+  end
+
+  defmodule DynamicGlobalNAT do
+    defstruct    real_if: nil,
+               mapped_if: nil,
+              after_auto: nil,
+             real_source: nil,
+           mapped_source: nil,
+                pat_pool: nil,
+                extended: nil,
+               interface: nil,
+                    ipv6: nil,
+                    flat: nil,
+         include_reserve: nil,
+             round_robin: nil,
+        real_destination: nil,
+      mapped_destination: nil,
+                     dns: nil,
+                 service: nil,
+              net_to_net: nil,
+                inactive: nil,
+             description: nil
+
+    @type t :: %__MODULE__{
+                 real_if: nil | String.t,
+               mapped_if: nil | String.t,
+              after_auto: boolean,
+             real_source: String.t | :any,
+           mapped_source: nil | String.t,
+                pat_pool: boolean,
+                extended: boolean,
+               interface: boolean,
+                    ipv6: boolean,
+                    flat: boolean,
+         include_reserve: boolean,
+             round_robin: boolean,
+        real_destination: nil | String.t,
+      mapped_destination: nil | String.t | {:interface, nil | :ipv6},
+                     dns: boolean,
+                 service: nil | {String.t, String.t},
+              net_to_net: boolean,
+                inactive: boolean,
+             description: nil | String.t,
+    }
+  end
+
+  defmodule DynamicObjectNAT do
+    defstruct    real_if: nil,
+               mapped_if: nil,
+           mapped_source: nil,
+                pat_pool: nil,
+                extended: nil,
+                    flat: nil,
+         include_reserve: nil,
+             round_robin: nil,
+               interface: nil,
+                    ipv6: nil,
+                     dns: nil
+
+    @type t :: %__MODULE__{
+                 real_if: nil | String.t,
+               mapped_if: nil | String.t,
+           mapped_source: nil | NetAddr.t | String.t,
+                pat_pool: boolean,
+                extended: boolean,
+                    flat: boolean,
+         include_reserve: boolean,
+             round_robin: boolean,
+               interface: boolean,
+                    ipv6: boolean,
+                     dns: boolean,
+    }
+  end
+
+  defmodule StandardACE do
+    defstruct acl_name: nil, action: nil, criterion: nil
+
+    @type t :: %__MODULE__{
+       acl_name: String.t,
+         action: :permit | :deny,
+      criterion: NetAddr.t | :any4,
+    }
+  end
+
+  defmodule ExtendedACE do
+    defstruct acl_name: nil,
+                action: nil,
+              protocol: nil,
+                source: nil,
+           source_port: nil,
+           destination: nil,
+      destination_port: nil,
+                   log: nil,
+             log_level: nil,
+          log_interval: nil,
+           log_disable: nil,
+            time_range: nil,
+              inactive: nil
+
+    @type   ip_proto :: 0..255
+    @type   port_num :: 1..65535
+    @type  icmp_type :: 0..255
+    @type port_match :: {:eq | :gt | :lt | :neq, port_num}
+                      | {:range, port_num, port_num}
+                      | icmp_type
+
+    @type src_or_dst_port :: port_match | icmp_type
+    @type src_or_dst :: NetAddr.t
+                      | String.t
+                      | :any4
+                      | :any6
+                      | :any
+                      | {:interface, String.t}
+
+    @type t :: %__MODULE__{
+              acl_name: String.t,
+                action: :permit | :deny,
+              protocol: nil,
+                source: nil,
+           source_port: nil,
+           destination: nil,
+      destination_port: nil,
+                   log: boolean,
+             log_level: nil | 0..7,
+          log_interval: nil | 1..600,
+           log_disable: boolean,
+            time_range: nil | String.t,
+              inactive: boolean,
+    }
+  end
+
+  defmodule ACLRemark do
+    defstruct acl_name: nil, remark: nil
+
+    @type t :: %__MODULE__{
+      acl_name: String.t,
+        remark: String.t,
+    }
+  end
+
+  defmodule ACL do
+    defstruct name: nil, aces: nil
+
+    @type ace :: Firewalk.Cisco.ASA.StandardACE.t
+               | Firewalk.Cisco.ASA.ExtendedACE.t
+
+    @type remark :: Firewalk.Cisco.ASA.ACLRemark.t
+
+    @type t :: %__MODULE__{
+      name: String.t,
+      aces: [ace | remark],
+    }
+  end
+
+  defmodule Route do
+    defstruct      type: nil,
+      candidate_default: nil,
+             replicated: nil,
+            destination: nil,
+         admin_distance: nil,
+                 metric: nil,
+               next_hop: nil,
+            last_update: nil,
+              interface: nil
+
+    @type route_type :: :local
+                      | :connected
+                      | :static
+                      | :rip
+                      | :mobile
+                      | :bgp
+                      | :eigrp
+                      | :eigrp_external
+                      | :ospf
+                      | :ospf_inter_area
+                      | :ospf_nssa_external_type_1
+                      | :ospf_nssa_external_type_2
+                      | :ospf_external_type_1
+                      | :ospf_external_type_2
+                      | :is_is
+                      | :is_is_summary
+                      | :is_is_level_1
+                      | :is_is_level_2
+                      | :is_is_inter_area
+                      | :per_user_static_route
+                      | :odr
+                      | :periodic_downloaded_static_route
+
+    @type t :: %__MODULE__{
+                   type: route_type,
+      candidate_default: boolean,
+             replicated: boolean,
+            destination: NetAddr.t,
+         admin_distance: 0..255,
+                 metric: non_neg_integer,
+               next_hop: NetAddr.t,
+            last_update: nil | String.t,
+              interface: nil | String.t,
+    }
+  end
+
+  defp extract(term)
+      when is_list(term), do: List.first term
+  defp extract(term),     do: term
+
+  defp copy(struct, atom, from: ast) when is_atom(atom),
+    do: Map.put(struct, atom, extract(ast[atom]))
+
+  defp copy(struct, atom, ast) when is_atom(atom),
+    do: copy(struct, atom, from: ast)
+
+  def address_mask_to_cidr(address, mask) do
+    address = NetAddr.address address
+       mask = NetAddr.address mask
+
+    NetAddr.ip(address, mask)
+  end
+
+  def interface(ast) do
+    ip_address =
+      case ast[:ip_address][:ip_address] do
+        [addr, mask] -> address_mask_to_cidr(addr, mask)
+              [ipv6] -> ipv6
+                 nil -> nil
+      end
+
+    %Interface{
+                   id: extract(ast[:interface]),
+                 vlan: extract(ast[:vlan]),
+               nameif: extract(ast[:nameif]),
+       security_level: extract(ast[:security_level]),
+           ip_address: ip_address,
+      standby_address: extract(ast[:address_line]),
+    }
+  end
+
+  def network_object([{_, decl}|defs]) do
+    def_ = defs[:net_obj_def]
+    name = extract decl[:name]
+    value =
+      case extract(def_) do
+                            nil -> nil
+        {:fqdn,         [fqdn]} -> {nil, fqdn}
+        {:fqdn,    [ver, fqdn]} -> {ver, fqdn}
+        {:host,         [host]} -> host
+        {:range, [first, last]} -> {first, last}
+        {:subnet, [addr, mask]} -> address_mask_to_cidr(addr, mask)
+        {:subnet,       [ipv6]} -> ipv6
+      end
+
+    %NetworkObject{name: name, value: value}
+      |> set_description(defs)
+  end
+
+  defp port_match_ast_to_model(nil),                   do: nil
+  defp port_match_ast_to_model([{op,        [port]}]), do: {op, port}
+  defp port_match_ast_to_model([{op, [first, last]}]), do: {op, first, last}
+
+  def service_object([{_, decl}|defs]) do
+    def_ = defs[:svc_obj_def]
+
+    %ServiceObject{
+             name: extract(decl[:name]),
+         protocol: extract(def_[:protocol]),
+           source: port_match_ast_to_model(def_[:source]),
+      destination: port_match_ast_to_model(def_[:destination]),
+    } |> set_description(defs)
+  end
+
+  defp _time_range(name, [{:type, :absolute}|_] = ast) do
+    [stime, sday, smonth, syear] = ast[:start]
+    [etime, eday, emonth, eyear] = ast[:end]
+
+    [shr, smin] = String.split stime, ":"
+    [ehr, emin] = String.split etime, ":"
+
+     %AbsoluteTimeRange{
+        name: name,
+       start: NaiveDateTime.new(syear, smonth, sday, shr, smin, 0),
+         end: NaiveDateTime.new(eyear, emonth, eday, ehr, emin, 0),
+     }
+  end
+
+  defp _time_range(name, [{:type, :periodic}|_] = ast) do
+    days =
+      case ast[:days] do
+        [t] -> t
+         t  -> Enum.sort(t)
+      end
+
+    [fhr_str, fmin_str] = String.split extract(ast[:from]), ":"
+    [thr_str, tmin_str] = String.split extract(ast[:to]), ":"
+    [fhr, fmin, thr, tmin] =
+      [fhr_str, fmin_str, thr_str, tmin_str]
+        |> Enum.map(&String.to_integer/1)
+
+    %PeriodicTimeRange{
+      name: name,
+      days: days,
+      from: Time.new(fhr, fmin, 0),
+        to: Time.new(thr, tmin, 0),
+    }
+  end
+
+  def time_range([{_, decl}|[{_, def_}]]) do
+    name = extract decl[:name]
+
+    _time_range(name, def_)
+  end
+
+  def icmp_group([{_, decl}|defs]) do
+    {description, defs} = Keyword.pop defs, :description
+
+    %ICMPGroup{
+             name: extract(decl[:name]),
+           values: Enum.map(defs, fn {_, [v]} -> v end),
+    } |> set_description([description: description])
+  end
+
+  def network_group([{_, decl}|defs]) do
+    {description, defs} = Keyword.pop defs, :description
+
+    values =
+      Enum.map(defs, fn {_, v} ->
+        case v do
+          [object: [term]] -> term
+              [addr, mask] -> address_mask_to_cidr(addr, mask)
+                    [term] -> term
+        end
+      end)
+
+    %NetworkGroup{
+             name: extract(decl[:name]),
+           values: values,
+    } |> set_description([description: description])
+  end
+
+  def service_protocol_group([{_, decl}|defs]) do
+    {description, defs} = Keyword.pop defs, :description
+
+    values = Enum.map(defs, &port_match_ast_to_model(elem(&1, 1)))
+
+    %ServiceProtocolGroup{
+             name: extract(decl[:name]),
+         protocol: extract(decl[:protocol]),
+           values: values,
+    } |> set_description([description: description])
+  end
+
+  def service_group([{_, decl}|defs]) do
+    {description, defs} = Keyword.pop defs, :description
+
+    values =
+      Enum.map(defs, fn {_, ast} ->
+        %ServiceObject{
+             protocol: extract(ast[:protocol]),
+               source: port_match_ast_to_model(ast[:source]),
+          destination: port_match_ast_to_model(ast[:destination]),
+        }
+      end)
+
+    %ServiceGroup{
+             name: extract(decl[:name]),
+           values: values,
+    } |> set_description([description: description])
+  end
+
+  def protocol_group([{_, decl}|defs]) do
+    {description, defs} = Keyword.pop defs, :description
+
+    %ProtocolGroup{
+             name: extract(decl[:name]),
+           values: Enum.map(defs, &extract(elem(&1, 1))),
+    } |> set_description([description: description])
+  end
+
+  defp sort_by_string_length_desc(strings) when is_list(strings),
+    do: Enum.sort_by(strings, &String.length/1, &>=/2)
+
+  defp strings_to_regex_choice(strings) when is_list(strings) do
+    strings
+      |> sort_by_string_length_desc
+      |> Enum.map(&Regex.escape/1)
+      |> Enum.join("|")
+      |> Regex.compile!
+  end
+
+  defp extract_nameifs(nil, _),         do: {nil, nil}
+  defp extract_nameifs(ifpair, nameifs) do
+    pattern = strings_to_regex_choice ["any"|nameifs]
+
+    ifpair = String.replace(ifpair, ~r/\(|\)/, "")
+
+    ["", real_if, ",", mapped_if, ""] =
+      Regex.split(pattern, ifpair, include_captures: true)
+
+    {real_if, mapped_if}
+  end
+
+  defp extract_mapped(ast) do
+    case ast[:mapped] do
+                         nil -> nil
+               [pat_pool: _] -> nil
+      [   object:  [object]] -> object
+      [interface:        []] -> {:interface, nil}
+      [interface: [ipv6: _]] -> {:interface, :ipv6}
+                        [ip] -> [ip]
+    end
+  end
+
+  defp extract_static_nat(nil), do: {nil, nil}
+  defp extract_static_nat(ast) do
+    real = extract(ast[:real][:object])
+
+    mapped = extract_mapped ast
+
+    {real, mapped}
+  end
+
+  defp set_nat_interfaces(struct, ast, nameifs) do
+    {real, mapped} =
+      ast[:interfaces]
+        |> extract
+        |> extract_nameifs(nameifs)
+
+    %{struct|real_if: real, mapped_if: mapped}
+  end
+
+  defp set_global_nat_destination(struct, ast) do
+    {real, mapped} = extract_static_nat ast[:destination]
+
+    %{struct|real_destination: real, mapped_destination: mapped}
+  end
+
+  defp set_global_nat_service(struct, ast) do
+    service =
+      case ast[:service] || ast[:destination][:service] do
+        [{:object, [real]}, {:object, [mapped]}] ->
+          {real, mapped}
+
+        _ ->
+          nil
+      end
+
+    %{struct|service: service}
+  end
+
+  defp set_description(struct, ast) do
+    value = ast[:description]
+    description = value && Enum.join(value, " ") || nil
+
+    %{struct|description: description}
+  end
+
+  defp set_flag(struct, ast, atom) when is_atom(atom) do
+    current = Map.get(struct, atom)
+     target = ast[atom] != nil
+
+    %{struct|atom => current || target || false}
+  end
+
+  def static_global_nat(ast, nameifs) do
+    {real_source, mapped_source} = extract_static_nat ast[:source]
+
+    %StaticGlobalNAT{}
+      |> set_nat_interfaces(ast, nameifs)
+      |> set_flag(ast, :after_auto)
+      |> Map.put(:real_source, real_source)
+      |> Map.put(:mapped_source, mapped_source)
+      |> set_global_nat_destination(ast)
+      |> set_flag(ast, :dns)
+      |> set_global_nat_service(ast)
+      |> set_flag(ast[:destination], :net_to_net)
+      |> set_flag(ast, :unidirectional)
+      |> set_flag(ast, :no_proxy_arp)
+      |> set_flag(ast, :route_lookup)
+      |> set_flag(ast, :inactive)
+      |> set_description(ast)
+  end
+
+  defp set_object_nat_service(struct, ast) do
+    case ast[:service] do
+      [protocol, real: real, mapped: mapped] ->
+        %{struct |
+          protocol: protocol,
+          real_port: real,
+          mapped_port: mapped
+        }
+
+      _ ->
+        struct
+    end
+  end
+
+  def static_object_nat(ast, nameifs) do
+    mapped_source = extract_mapped ast
+
+    %StaticObjectNAT{}
+      |> set_nat_interfaces(ast, nameifs)
+      |> Map.put(:mapped_source, mapped_source)
+      |> set_flag(ast, :net_to_net)
+      |> set_flag(ast, :dns)
+      |> set_flag(ast, :no_proxy_arp)
+      |> set_flag(ast, :route_lookup)
+      |> set_object_nat_service(ast)
+  end
+
+  defp set_interface_nat(struct, ast) do
+    struct
+      |> set_flag(ast, :interface)
+      |> set_flag(ast[:interface], :ipv6)
+  end
+
+  defp set_pat_pool(struct, ast) do
+    pat_pool = ast[:pat_pool]
+
+    mapped_source = struct.mapped_source
+                 || pat_pool[:object]
+
+    struct
+      |> Map.put(:mapped_source, mapped_source)
+      |> set_flag(ast, :pat_pool)
+      |> set_flag(pat_pool, :extended)
+      |> set_flag(pat_pool, :flat)
+      |> set_flag(pat_pool, :include_reserve)
+      |> set_flag(pat_pool, :round_robin)
+      |> set_interface_nat(pat_pool)
+  end
+
+  def dynamic_global_nat(ast, nameifs) do
+    real_source =
+      case ast[:source][:real] do
+        [object: [object]] -> object
+                    [:any] -> :any
+      end
+
+    mapped_source = extract_mapped ast[:source]
+
+    %DynamicGlobalNAT{}
+      |> set_nat_interfaces(ast, nameifs)
+      |> set_flag(ast, :after_auto)
+      |> Map.put(:real_source, real_source)
+      |> Map.put(:mapped_source, mapped_source)
+      |> set_pat_pool(ast[:source][:mapped])
+      |> set_global_nat_destination(ast)
+      |> set_flag(ast, :dns)
+      |> set_global_nat_service(ast)
+      |> set_flag(ast[:destination], :net_to_net)
+      |> set_flag(ast, :inactive)
+      |> set_description(ast)
+  end
+
+  defp set_dynamic_object_nat_mapped(struct, ast) do
+    mapped = ast[:mapped]
+
+    mapped_source =
+      case mapped do
+        [pat_pool: _]           -> nil
+        [{:object, [object]}|_] -> object
+                         [ip|_] -> ip
+      end
+
+    struct
+      |> Map.put(:mapped_source, mapped_source)
+      |> set_interface_nat(mapped)
+      |> set_flag(mapped, :dns)
+  end
+
+  def dynamic_object_nat(ast, nameifs) do
+    mapped = ast[:mapped]
+
+    %DynamicObjectNAT{}
+      |> set_nat_interfaces(ast, nameifs)
+      |> set_dynamic_object_nat_mapped(ast)
+      |> set_pat_pool(mapped)
+      |> set_interface_nat(mapped)
+      |> set_flag(mapped, :dns)
+  end
+
+  def standard_ace(ast) do
+    criterion =
+      case ast[:criterion] do
+        [ addr, mask] -> address_mask_to_cidr(addr, mask)
+        [:host, ipv4] -> ipv4
+                :any4 -> :any4
+      end
+
+    %StandardACE{}
+      |> Map.put(:criterion, criterion)
+      |> copy(:acl_name, from: ast)
+      |> copy(:action, from: ast)
+  end
+
+  defp disambiguate_ace_criteria(criteria, objects) do
+    case criteria do
+      [protocol, source, u1, u2] when is_binary u1 ->
+        case OrderedMap.get(objects, u1) do
+          %NetworkObject{} ->
+            [         protocol: protocol,
+                        source: source,
+                   source_port: nil,
+                   destination: u1,
+              destination_port: u2,
+            ]
+
+          %NetworkGroup{} ->
+            [         protocol: protocol,
+                        source: source,
+                   source_port: nil,
+                   destination: u1,
+              destination_port: u2,
+            ]
+
+          _               ->
+            [         protocol: protocol,
+                        source: source,
+                   source_port: u1,
+                   destination: u2,
+              destination_port: nil,
+            ]
+        end
+
+      [protocol, source, {k, _} = u1, u2]
+          when k in [:eq, :gt, :lt, :neq] ->
+        [         protocol: protocol,
+                    source: source,
+               source_port: u1,
+               destination: u2,
+          destination_port: nil,
+        ]
+
+      [protocol, source, {:range, _, _} = u1, u2] ->
+        [         protocol: protocol,
+                    source: source,
+               source_port: u1,
+               destination: u2,
+          destination_port: nil,
+        ]
+
+      [protocol, source, u1, u2] ->
+        [         protocol: protocol,
+                    source: source,
+               source_port: nil,
+               destination: u1,
+          destination_port: u2,
+        ]
+
+      [protocol, source, sport, destination, dport] ->
+        [         protocol: protocol,
+                    source: source,
+               source_port: sport,
+               destination: destination,
+          destination_port: dport,
+        ]
+
+      [protocol, source, destination] ->
+        [         protocol: protocol,
+                    source: source,
+               source_port: nil,
+               destination: destination,
+          destination_port: nil,
+        ]
+    end
+  end
+
+  defp groom_ace_criteria(criteria) do
+    Enum.map(criteria, fn criterion ->
+      case criterion do
+        [object:     [object]]   -> object
+        [eq:           [port]]   -> { :eq, port}
+        [gt:           [port]]   -> { :gt, port}
+        [lt:           [port]]   -> { :lt, port}
+        [neq:          [port]]   -> {:neq, port}
+        [range: [first, last]]   -> {:range, first, last}
+        [icmp_type:    [type]]   -> {:icmp_type, type}
+        [host:           [ip]]   -> ip
+        [interface:  [nameif]]   -> {:interface, nameif}
+                  [addr, mask]   -> address_mask_to_cidr(addr, mask)
+                       [:any4]   -> :any4
+                       [:any6]   -> :any6
+                       [:any ]   -> :any
+        [%NetAddr.IPv6{} = ipv6] -> ipv6
+        [octet]
+            when octet in 0..255 -> octet
+      end
+    end)
+  end
+
+  defp set_ace_criteria(struct, criteria) do
+    Enum.reduce(criteria, struct, fn ({atom, value}, acc) ->
+      %{acc | atom => value}
+    end)
+  end
+
+  defp set_ace_log(struct, ast) do
+    %{struct |
+               log: ast[:log] != nil,
+         log_level: extract(ast[:log][:level]),
+      log_interval: extract(ast[:log][:interval]),
+       log_disable: ast[:log][:disable] != nil
+    }
+  end
+
+  defp set_ace_time_range(struct, ast),
+    do: %{struct|time_range: extract(ast[:time_range])}
+
+  def extended_ace(ast, objects) do
+    criteria =
+      ast
+        |> Keyword.get_values(:ace_spec)
+        |> groom_ace_criteria
+        |> disambiguate_ace_criteria(objects)
+
+    %ExtendedACE{}
+      |> copy(:acl_name, from: ast)
+      |> copy(:action, from: ast)
+      |> set_ace_criteria(criteria)
+      |> set_ace_log(ast)
+      |> set_ace_time_range(ast)
+      |> set_flag(ast, :inactive)
+  end
+
+  def acl_remark(ast) do
+    %ACLRemark{}
+      |> copy(:acl_name, from: ast)
+      |> Map.put(:remark, Enum.join(ast[:remark], " "))
+  end
+
+  def acl([{_, head}|_] = aces, objects) do
+    aces = Enum.map(aces, fn {type, ast} ->
+        case type do
+          :std_ace -> standard_ace(ast)
+          :ext_ace -> extended_ace(ast, objects)
+          :acl_rem -> acl_remark(ast)
+        end
+      end)
+
+    %ACL{name: extract(head[:acl_name]), aces: aces}
+  end
+
+  defp set_route_type_and_flags(struct, ast) do
+    pattern = ~r/^[LCSRMBDOiUoP]|EX|IA|N[12]|E[12]|su|L[12]|ia|\*|\+$/
+
+    codes = Regex.split(pattern, Enum.join(ast[:code]), include_captures: true)
+
+    candidate_default = "*" in codes
+           replicated = "+" in codes
+
+    type =
+      case Enum.filter(codes, & &1 =~ ~r/^[^\*\+]+$/) do
+        ~w(L)    -> :local
+        ~w(C)    -> :connected
+        ~w(S)    -> :static
+        ~w(R)    -> :rip
+        ~w(M)    -> :mobile
+        ~w(B)    -> :bgp
+        ~w(D)    -> :eigrp
+        ~w(D EX) -> :eigrp_external
+        ~w(O)    -> :ospf
+        ~w(O IA) -> :ospf_inter_area
+        ~w(O N1) -> :ospf_nssa_external_type_1
+        ~w(O N2) -> :ospf_nssa_external_type_2
+        ~w(O E1) -> :ospf_external_type_1
+        ~w(O E2) -> :ospf_external_type_2
+        ~w(i)    -> :is_is
+        ~w(i su) -> :is_is_summary
+        ~w(i L1) -> :is_is_level_1
+        ~w(i L2) -> :is_is_level_2
+        ~w(i ia) -> :is_is_inter_area
+        ~w(U)    -> :per_user_static_route
+        ~w(o)    -> :odr
+        ~w(P)    -> :periodic_downloaded_static_route
+      end
+
+    %{struct |
+      type: type,
+      candidate_default: candidate_default,
+      replicated: replicated,
+    }
+  end
+
+  def route(ast) do
+    network = extract ast[:network]
+       mask = extract ast[:mask]
+
+    destination = address_mask_to_cidr(network, mask)
+
+    [ad, metric] =
+      ast[:metric]
+        |> extract
+        |> String.replace(~r{\[|\]}, "")
+        |> String.split("/")
+        |> Enum.map(&String.to_integer/1)
+
+    %Route{}
+      |> set_route_type_and_flags(ast)
+      |> Map.put(:destination, destination)
+      |> Map.put(:admin_distance, ad)
+      |> Map.put(:metric, metric)
+      |> copy(:next_hop, from: ast)
+      |> copy(:last_update, from: ast)
+      |> copy(:interface, from: ast)
+  end
+
+  defp apposite?({{line_type, _} = ast1, _}, [{type, {[ast2|_], _}}]) do
+    case {type, line_type} do
+      {:interface,              :nameif}            -> true
+      {:interface,              :vlan}              -> true
+      {:interface,              :security_level}    -> true
+      {:interface,              :ip_address}        -> true
+      {:interface,              :description}       -> true
+      {:network_object,         :net_obj_def}       -> true
+      {:network_object,         :description}       -> true
+      {:service_object,         :svc_obj_def}       -> true
+      {:service_object,         :description}       -> true
+      {:time_range,             :trange_def}        -> true
+      {:icmp_group,             :icmp_grp_def}      -> true
+      {:icmp_group,             :group_ref}         -> true
+      {:icmp_group,             :description}       -> true
+      {:network_group,          :net_grp_def}       -> true
+      {:network_group,          :object}            -> true
+      {:network_group,          :group_ref}         -> true
+      {:network_group,          :description}       -> true
+      {:service_protocol_group, :svc_proto_grp_def} -> true
+      {:service_protocol_group, :object}            -> true
+      {:service_protocol_group, :group_ref}         -> true
+      {:service_protocol_group, :description}       -> true
+      {:service_group,          :svc_grp_def}       -> true
+      {:service_group,          :object}            -> true
+      {:service_group,          :group_ref}         -> true
+      {:service_group,          :description}       -> true
+      {:protocol_group,         :proto_grp_def}     -> true
+      {:protocol_group,         :object}            -> true
+      {:protocol_group,         :group_ref}         -> true
+      {:protocol_group,         :description}       -> true
+      {:acl, _} when line_type in [ :std_ace,
+                                    :ext_ace,
+                                    :acl_rem
+                                  ] ->
+        case {ast1, ast2} do
+          {{       t, [name|_]}, {       t, [name|_]}} -> true
+          {{       _, [name|_]}, {:acl_rem, [name|_]}} -> true
+          {{:acl_rem, [name|_]}, {       _, [name|_]}} -> true
+                                                     _ -> false
+        end
+
+      _ -> false
+    end
+  end
+
+  defp line_type_to_model_type(line_type) when is_atom line_type do
+    %{:interface          => :interface,
+      :net_obj_decl       => :network_object,
+      :svc_obj_decl       => :service_object,
+      :trange_decl        => :time_range,
+      :icmp_grp_decl      => :icmp_group,
+      :net_grp_decl       => :network_group,
+      :svc_proto_grp_decl => :service_protocol_group,
+      :svc_grp_decl       => :service_group,
+      :proto_grp_decl     => :protocol_group,
+      :static_gbl_nat     => :static_global_nat,
+      :static_obj_nat     => :static_object_nat,
+      :dyn_gbl_nat        => :dynamic_global_nat,
+      :dyn_obj_nat        => :dynamic_object_nat,
+      :std_ace            => :acl,
+      :ext_ace            => :acl,
+      :acl_rem            => :acl,
+    }[line_type]
+  end
+
+  defp _aggregate_lines_into_models({{line_type, _} = ast, line} = part, acc) do
+    type = line_type_to_model_type(line_type)
+    new_acc = [{ type, {[ast], [line]} }]
+
+    cond do
+      acc == [] && type ->                  # uninitialized acc
+        {[], new_acc}
+
+      acc != [] && apposite?(part, acc) ->  # belongs to collection
+        [{acc_type, {asts, lines}}] = acc
+
+        next_acc = [{ acc_type, {[ast|asts], [line|lines]} }]
+
+        {[], next_acc}
+
+      acc != [] && type ->                  # starts a collection
+        [{acc_type, {asts, lines}}] = acc
+
+          asts = Enum.reverse asts
+         lines = Enum.reverse lines
+        output = {acc_type, asts}
+
+        {[output], new_acc}
+
+      true ->
+        :ok = Logger.error("Cannot accrete #{line_type} into #{type}: #{inspect line}")
+
+        {[], acc}
+    end
+  end
+
+  defp aggregate_lines_into_models(stream),
+    do: Stream.transform(stream, [], &_aggregate_lines_into_models/2)
+
+  def parse_line(line, grammar) when is_binary line do
+    case Frank.parse(line, grammar) do
+      {:ok, [root: [ast]]} ->
+        {ast, line}
+
+      {:error, :nomatch, _} ->
+        :ok = Logger.warn("Unmatched line: #{inspect line}")
+
+        nil
+    end
+  end
+
+  defp parse_lines(stream, grammar) do
+    stream
+      |> Stream.map(&parse_line(&1, grammar))
+      |> Stream.filter(fn nil -> false; x -> x end)
+  end
+
+  defp interface_model_to_struct({:interface, ast}),
+    do: interface ast
+
+  defp object_model_to_struct({name, ast}) do
+    %{        network_object: &network_object/1,
+              service_object: &service_object/1,
+                  time_range: &time_range/1,
+                  icmp_group: &icmp_group/1,
+               network_group: &network_group/1,
+      service_protocol_group: &service_protocol_group/1,
+               service_group: &service_group/1,
+              protocol_group: &protocol_group/1,
+    }[name].(ast)
+  end
+
+  defp nat_model_to_struct({name, [{_, ast}]}, nameifs) do
+    %{     static_global_nat:  &static_global_nat(&1, nameifs),
+           static_object_nat:  &static_object_nat(&1, nameifs),
+          dynamic_global_nat: &dynamic_global_nat(&1, nameifs),
+          dynamic_object_nat: &dynamic_object_nat(&1, nameifs),
+    }[name].(ast)
+  end
+
+  defp acl_model_to_struct({:acl, ast}, objects),
+    do: acl(ast, objects)
+
+  defp model_type({name, _}) do
+    case name do
+      :acl                -> :acl
+      :interface          -> :interface
+      :static_global_nat  -> :nat
+      :static_object_nat  -> :nat
+      :dynamic_global_nat -> :nat
+      :dynamic_object_nat -> :nat
+                        _ -> :object
+    end
+  end
+
+  def parse(lines) do
+    %{acl:       acl_models,
+      nat:       nat_models,
+      object: object_models,
+      interface:  if_models,
+    } = lines
+          |> Stream.map(&String.trim/1)
+          |> parse_lines(Grammar.asa_command)
+          |> aggregate_lines_into_models
+          |> Enum.group_by(&model_type/1)
+
+    interfaces = Enum.map(if_models, &interface_model_to_struct/1)
+
+    nameifs =
+      interfaces
+        |> Enum.map(& &1.nameif)
+        |> Enum.filter(& &1 != nil)
+
+    nats = Enum.map(nat_models, &nat_model_to_struct(&1, nameifs))
+
+    objects =
+      object_models
+        |> Stream.map(&object_model_to_struct/1)
+        |> Enum.reduce(OrderedMap.new, &OrderedMap.put(&2, &1.name, &1))
+
+    acls = Enum.map(acl_models, &acl_model_to_struct(&1, objects))
+
+    %{      acls: acls,
+            nats: nats,
+         objects: objects,
+      interfaces: interfaces,
+    }
+  end
+
+  defp _join_split_routes(line, acc) do
+    cond do
+      line =~ ~r|^\[| ->
+        case acc do
+          [start] ->
+            joined = Enum.join([start, line], " ")
+
+            {[joined], []}
+
+          _ ->
+            :ok = Logger.error("Detected split route but found no mate: #{inspect line}")
+            {[], []}
+        end
+
+      line =~ ~r/ via | directly connected / ->
+        {[line], acc}
+
+      true ->
+        {[], [line]}
+    end
+  end
+
+  defp join_split_routes(lines),
+    do: Stream.transform(lines, [], &_join_split_routes/2)
+
+  def parse_routes(lines) do
+    lines
+      |> Stream.map(&String.trim/1)
+      |> join_split_routes
+      |> Stream.map(&String.replace(&1, ",", ""))
+      |> parse_lines(Grammar.route)
+      |> Enum.map(fn {{:route, ast}, _} -> route(ast) end)
+  end
+end
