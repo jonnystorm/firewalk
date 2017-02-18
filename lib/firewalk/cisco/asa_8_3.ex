@@ -194,6 +194,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   defmodule StaticObjectNAT do
     defstruct    real_if: nil,
                mapped_if: nil,
+             real_source: nil,
            mapped_source: nil,
               net_to_net: nil,
                      dns: nil,
@@ -208,6 +209,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     @type t :: %__MODULE__{
                  real_if: nil | String.t,
                mapped_if: nil | String.t,
+             real_source: String.t,
            mapped_source: NetAddr.t | String.t | {:interface, nil | :ipv6},
               net_to_net: boolean,
                      dns: boolean,
@@ -266,6 +268,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   defmodule DynamicObjectNAT do
     defstruct    real_if: nil,
                mapped_if: nil,
+             real_source: nil,
            mapped_source: nil,
                 pat_pool: nil,
                 extended: nil,
@@ -279,6 +282,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     @type t :: %__MODULE__{
                  real_if: nil | String.t,
                mapped_if: nil | String.t,
+             real_source: String.t,
            mapped_source: nil | NetAddr.t | String.t,
                 pat_pool: boolean,
                 extended: boolean,
@@ -454,7 +458,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   def network_object([{_, decl}|defs]) do
-    def_ = defs[:net_obj_def]
+    def_ = extract defs[:net_obj_def]
     name = extract decl[:name]
     value =
       case extract(def_) do
@@ -467,7 +471,9 @@ defmodule Firewalk.Cisco.ASA_8_3 do
         {:subnet,       [ipv6]} -> ipv6
       end
 
-    %NetworkObject{name: name, value: value}
+    %NetworkObject{}
+      |> Map.put(:name, name)
+      |> Map.put(:value, value)
       |> set_description(defs)
   end
 
@@ -478,25 +484,28 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   def service_object([{_, decl}|defs]) do
     def_ = defs[:svc_obj_def]
 
-    %ServiceObject{
-             name: extract(decl[:name]),
-         protocol: extract(def_[:protocol]),
-           source: port_match_ast_to_model(def_[:source]),
-      destination: port_match_ast_to_model(def_[:destination]),
-    } |> set_description(defs)
+    %ServiceObject{}
+      |> Map.put(:name,     extract(decl[:name]))
+      |> Map.put(:protocol, extract(def_[:protocol]))
+      |> Map.put(:source,      port_match_ast_to_model(def_[:source]))
+      |> Map.put(:destination, port_match_ast_to_model(def_[:destination]))
+      |> set_description(defs)
   end
 
   defp _time_range(name, [{:type, :absolute}|_] = ast) do
     [stime, sday, smonth, syear] = ast[:start]
     [etime, eday, emonth, eyear] = ast[:end]
 
-    [shr, smin] = String.split stime, ":"
-    [ehr, emin] = String.split etime, ":"
+    [shr, smin] = String.split(stime, ":")
+    [ehr, emin] = String.split(etime, ":")
+
+    {:ok, start} = NaiveDateTime.new(syear, smonth, sday, shr, smin, 0)
+    {:ok,  end_} = NaiveDateTime.new(eyear, emonth, eday, ehr, emin, 0)
 
      %AbsoluteTimeRange{
         name: name,
-       start: NaiveDateTime.new(syear, smonth, sday, shr, smin, 0),
-         end: NaiveDateTime.new(eyear, emonth, eday, ehr, emin, 0),
+       start: start,
+         end: end_,
      }
   end
 
@@ -513,11 +522,14 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       [fhr_str, fmin_str, thr_str, tmin_str]
         |> Enum.map(&String.to_integer/1)
 
+    {:ok, from} = Time.new(fhr, fmin, 0)
+    {:ok,   to} = Time.new(thr, tmin, 0)
+
     %PeriodicTimeRange{
       name: name,
       days: days,
-      from: Time.new(fhr, fmin, 0),
-        to: Time.new(thr, tmin, 0),
+      from: from,
+        to: to,
     }
   end
 
@@ -530,10 +542,12 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   def icmp_group([{_, decl}|defs]) do
     {description, defs} = Keyword.pop defs, :description
 
-    %ICMPGroup{
-             name: extract(decl[:name]),
-           values: Enum.map(defs, fn {_, [v]} -> v end),
-    } |> set_description([description: description])
+    values = Enum.map(defs, fn {_, [v]} -> v end)
+
+    %ICMPGroup{}
+      |> Map.put(:name, extract(decl[:name]))
+      |> Map.put(:values, values)
+      |> set_description([description: description])
   end
 
   def network_group([{_, decl}|defs]) do
@@ -548,10 +562,10 @@ defmodule Firewalk.Cisco.ASA_8_3 do
         end
       end)
 
-    %NetworkGroup{
-             name: extract(decl[:name]),
-           values: values,
-    } |> set_description([description: description])
+    %NetworkGroup{}
+      |> Map.put(:name, extract(decl[:name]))
+      |> Map.put(:values, values)
+      |> set_description([description: description])
   end
 
   def service_protocol_group([{_, decl}|defs]) do
@@ -559,11 +573,11 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
     values = Enum.map(defs, &port_match_ast_to_model(elem(&1, 1)))
 
-    %ServiceProtocolGroup{
-             name: extract(decl[:name]),
-         protocol: extract(decl[:protocol]),
-           values: values,
-    } |> set_description([description: description])
+    %ServiceProtocolGroup{}
+      |> Map.put(:name, extract(decl[:name]))
+      |> Map.put(:protocol, extract(decl[:protocol]))
+      |> Map.put(:values, values)
+      |> set_description([description: description])
   end
 
   def service_group([{_, decl}|defs]) do
@@ -578,19 +592,21 @@ defmodule Firewalk.Cisco.ASA_8_3 do
         }
       end)
 
-    %ServiceGroup{
-             name: extract(decl[:name]),
-           values: values,
-    } |> set_description([description: description])
+    %ServiceGroup{}
+      |> Map.put(:name, extract(decl[:name]))
+      |> Map.put(:values, values)
+      |> set_description([description: description])
   end
 
   def protocol_group([{_, decl}|defs]) do
     {description, defs} = Keyword.pop defs, :description
 
-    %ProtocolGroup{
-             name: extract(decl[:name]),
-           values: Enum.map(defs, &extract(elem(&1, 1))),
-    } |> set_description([description: description])
+    values = Enum.map(defs, &extract(elem(&1, 1)))
+
+    %ProtocolGroup{}
+      |> Map.put(:name, extract(decl[:name]))
+      |> Map.put(:values, values)
+      |> set_description([description: description])
   end
 
   defp sort_by_string_length_desc(strings) when is_list(strings),
@@ -610,10 +626,13 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
     ifpair = String.replace(ifpair, ~r/\(|\)/, "")
 
-    ["", real_if, ",", mapped_if, ""] =
-      Regex.split(pattern, ifpair, include_captures: true)
+    case Regex.split(pattern, ifpair, include_captures: true) do
+      ["", real_if, ",", mapped_if, ""] ->
+        {real_if, mapped_if}
 
-    {real_if, mapped_if}
+      _ ->
+        raise "Unable to match interface pair #{inspect ifpair} with interfaces #{inspect nameifs}."
+    end
   end
 
   defp extract_mapped(ast) do
@@ -678,7 +697,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     %{struct|atom => current || target || false}
   end
 
-  def static_global_nat(ast, nameifs) do
+  def static_global_nat([{_, ast}], nameifs) do
     {real_source, mapped_source} = extract_static_nat ast[:source]
 
     %StaticGlobalNAT{}
@@ -711,17 +730,18 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     end
   end
 
-  def static_object_nat(ast, nameifs) do
-    mapped_source = extract_mapped ast
+  def static_object_nat([{_, decl}, {_, def_}], nameifs) do
+    mapped_source = extract_mapped def_
 
     %StaticObjectNAT{}
-      |> set_nat_interfaces(ast, nameifs)
+      |> set_nat_interfaces(def_, nameifs)
+      |> Map.put(:real_source, extract(decl[:name]))
       |> Map.put(:mapped_source, mapped_source)
-      |> set_flag(ast, :net_to_net)
-      |> set_flag(ast, :dns)
-      |> set_flag(ast, :no_proxy_arp)
-      |> set_flag(ast, :route_lookup)
-      |> set_object_nat_service(ast)
+      |> set_flag(def_, :net_to_net)
+      |> set_flag(def_, :dns)
+      |> set_flag(def_, :no_proxy_arp)
+      |> set_flag(def_, :route_lookup)
+      |> set_object_nat_service(def_)
   end
 
   defp set_interface_nat(struct, ast) do
@@ -746,7 +766,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       |> set_interface_nat(pat_pool)
   end
 
-  def dynamic_global_nat(ast, nameifs) do
+  def dynamic_global_nat([{_, ast}], nameifs) do
     real_source =
       case ast[:source][:real] do
         [object: [object]] -> object
@@ -785,15 +805,11 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       |> set_flag(mapped, :dns)
   end
 
-  def dynamic_object_nat(ast, nameifs) do
-    mapped = ast[:mapped]
-
+  def dynamic_object_nat([{_, decl}, {_, def_}], nameifs) do
     %DynamicObjectNAT{}
-      |> set_nat_interfaces(ast, nameifs)
-      |> set_dynamic_object_nat_mapped(ast)
-      |> set_pat_pool(mapped)
-      |> set_interface_nat(mapped)
-      |> set_flag(mapped, :dns)
+      |> Map.put(:real_source, extract(decl[:name]))
+      |> set_nat_interfaces(def_, nameifs)
+      |> set_dynamic_object_nat_mapped(def_)
   end
 
   def standard_ace(ast) do
@@ -813,7 +829,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   defp disambiguate_ace_criteria(criteria, objects) do
     case criteria do
       [protocol, source, u1, u2] when is_binary u1 ->
-        case OrderedMap.get(objects, u1) do
+        case objects[u1] do
           %NetworkObject{} ->
             [         protocol: protocol,
                         source: source,
@@ -1021,110 +1037,155 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       |> copy(:interface, from: ast)
   end
 
-  defp apposite?({{line_type, _} = ast1, _}, [{type, {[ast2|_], _}}]) do
-    case {type, line_type} do
-      {:interface,              :nameif}            -> true
-      {:interface,              :vlan}              -> true
-      {:interface,              :security_level}    -> true
-      {:interface,              :ip_address}        -> true
-      {:interface,              :description}       -> true
-      {:network_object,         :net_obj_def}       -> true
-      {:network_object,         :description}       -> true
-      {:service_object,         :svc_obj_def}       -> true
-      {:service_object,         :description}       -> true
-      {:time_range,             :trange_def}        -> true
-      {:icmp_group,             :icmp_grp_def}      -> true
-      {:icmp_group,             :group_ref}         -> true
-      {:icmp_group,             :description}       -> true
-      {:network_group,          :net_grp_def}       -> true
-      {:network_group,          :object}            -> true
-      {:network_group,          :group_ref}         -> true
-      {:network_group,          :description}       -> true
-      {:service_protocol_group, :svc_proto_grp_def} -> true
-      {:service_protocol_group, :object}            -> true
-      {:service_protocol_group, :group_ref}         -> true
-      {:service_protocol_group, :description}       -> true
-      {:service_group,          :svc_grp_def}       -> true
-      {:service_group,          :object}            -> true
-      {:service_group,          :group_ref}         -> true
-      {:service_group,          :description}       -> true
-      {:protocol_group,         :proto_grp_def}     -> true
-      {:protocol_group,         :object}            -> true
-      {:protocol_group,         :group_ref}         -> true
-      {:protocol_group,         :description}       -> true
-      {:acl, _} when line_type in [ :std_ace,
-                                    :ext_ace,
-                                    :acl_rem
-                                  ] ->
+  defp aggregate_type({type1, _} = ast1, ast2) do
+    type2 =
+      case ast2 do
+        {t, _} -> t
+            _  -> nil
+      end
+
+    case {type1, type2} do
+      {           :dyn_gbl_nat,             nil} -> :dynamic_global_nat
+      {        :static_gbl_nat,             nil} -> :static_global_nat
+      {          :net_obj_decl,    :dyn_obj_nat} -> :dynamic_object_nat
+      {:dynamic_object_nat = t,             nil} -> t
+      {          :net_obj_decl, :static_obj_nat} -> :static_object_nat
+      { :static_object_nat = t,             nil} -> t
+      {           :trange_decl,     :trange_def} -> :time_range
+      {        :time_range = t,             nil} -> t
+      {t1, t2} when (t1 in [:interface])
+                and (t2 in [ :nameif,
+                             :vlan,
+                             :security_level,
+                             :ip_address,
+                             :description,
+                             nil,
+                           ])                    -> :interface
+      {t1, t2} when (t1 in [:net_obj_decl, :network_object])
+                and (t2 in [ :net_obj_def,
+                             :description,
+                             nil
+                           ])                    -> :network_object
+      {t1, t2} when (t1 in [:svc_obj_decl, :service_object])
+                and (t2 in [ :svc_obj_def,
+                             :description,
+                             nil,
+                           ])                    -> :service_object
+      {t1, t2} when (t1 in [:icmp_grp_decl, :icmp_group])
+                and (t2 in [ :icmp_grp_def,
+                             :group_ref,
+                             :description,
+                             nil,
+                           ])                    -> :icmp_group
+      {t1, t2} when (t1 in [:net_grp_decl, :network_group])
+                and (t2 in [ :net_grp_def,
+                             :group_ref,
+                             :description,
+                             nil,
+                           ])                    -> :network_group
+      {t1, t2} when (t1 in [:svc_proto_grp_decl, :service_protocol_group])
+                and (t2 in [ :svc_proto_grp_def,
+                             :group_ref,
+                             :description,
+                             nil,
+                           ])                    -> :service_protocol_group
+      {t1, t2} when (t1 in [:svc_grp_decl, :service_group])
+                and (t2 in [ :svc_grp_def,
+                             :group_ref,
+                             :description,
+                             nil,
+                           ])                    -> :service_group
+      {t1, t2} when (t1 in [:proto_grp_decl, :protocol_group])
+                and (t2 in [ :proto_grp_def,
+                             :group_ref,
+                             :description,
+                             nil,
+                           ])                    -> :protocol_group
+
+      {t1, t2} when (t1 in [:std_ace, :ext_ace, :acl_rem, :acl])
+                and (t2 in [:std_ace, :ext_ace, :acl_rem, nil]) ->
         case {ast1, ast2} do
-          {{       t, [name|_]}, {       t, [name|_]}} -> true
-          {{       _, [name|_]}, {:acl_rem, [name|_]}} -> true
-          {{:acl_rem, [name|_]}, {       _, [name|_]}} -> true
-                                                     _ -> false
+          {{       _,            _},                      nil} -> :acl
+          {{       t, [name_ast|_]}, {       t, [name_ast|_]}} -> :acl
+          {{       _, [name_ast|_]}, {:acl_rem, [name_ast|_]}} -> :acl
+          {{:acl_rem, [name_ast|_]}, {       _, [name_ast|_]}} -> :acl
+          {{    :acl, [{_, ace}|_]}, {       _, [name_ast|_]}} ->
+            if {:acl_name, ace[:acl_name]} == name_ast do
+              :acl
+            else
+              nil
+            end
+
+          _ -> nil
         end
 
-      _ -> false
+      _ -> nil
     end
   end
 
-  defp line_type_to_model_type(line_type) when is_atom line_type do
-    %{:interface          => :interface,
-      :net_obj_decl       => :network_object,
-      :svc_obj_decl       => :service_object,
-      :trange_decl        => :time_range,
-      :icmp_grp_decl      => :icmp_group,
-      :net_grp_decl       => :network_group,
-      :svc_proto_grp_decl => :service_protocol_group,
-      :svc_grp_decl       => :service_group,
-      :proto_grp_decl     => :protocol_group,
-      :static_gbl_nat     => :static_global_nat,
-      :static_obj_nat     => :static_object_nat,
-      :dyn_gbl_nat        => :dynamic_global_nat,
-      :dyn_obj_nat        => :dynamic_object_nat,
-      :std_ace            => :acl,
-      :ext_ace            => :acl,
-      :acl_rem            => :acl,
-    }[line_type]
-  end
+  defp accrete_model(       model, nil), do: model
+  defp accrete_model({type, asts}, ast), do: {type, [ast|asts]}
 
-  defp _aggregate_lines_into_models({{line_type, _} = ast, line} = part, acc) do
-    type = line_type_to_model_type(line_type)
-    new_acc = [{ type, {[ast], [line]} }]
+  defp lines_into_models({type, sub_asts} = ast1, ast2) do
+    case aggregate_type(ast1, ast2) do
+      nil      ->
+        case aggregate_type(ast1, nil) do
+          nil   ->
+            :ok = Logger.warn("Unable to aggregate line: #{inspect sub_asts}")
 
-    cond do
-      acc == [] && type ->                  # uninitialized acc
-        {[], new_acc}
+            {nil, ast2}
 
-      acc != [] && apposite?(part, acc) ->  # belongs to collection
-        [{acc_type, {asts, lines}}] = acc
+          ^type ->
+            {{type, Enum.reverse(sub_asts)}, ast2}
 
-        next_acc = [{ acc_type, {[ast|asts], [line|lines]} }]
+          agg_type ->
+            {{agg_type, [ast1]}, ast2}
+        end
 
-        {[], next_acc}
+      ^type    ->
+        if ast2 != nil do
+          {nil, accrete_model(ast1, ast2)}
+        else
+          {{type, Enum.reverse(sub_asts)}, nil}
+        end
 
-      acc != [] && type ->                  # starts a collection
-        [{acc_type, {asts, lines}}] = acc
-
-          asts = Enum.reverse asts
-         lines = Enum.reverse lines
-        output = {acc_type, asts}
-
-        {[output], new_acc}
-
-      true ->
-        :ok = Logger.error("Cannot accrete #{line_type} into #{type}: #{inspect line}")
-
-        {[], acc}
+      agg_type ->
+        {nil, accrete_model({agg_type, [ast1]}, ast2)}
     end
   end
 
-  defp aggregate_lines_into_models(stream),
-    do: Stream.transform(stream, [], &_aggregate_lines_into_models/2)
+  def _aggregate([one], acc, fun) do
+    case fun.(one, nil) do
+      {nil, nil} ->
+        Enum.reverse(acc)
+
+      {agg, nil} ->
+        Enum.reverse [agg|acc]
+
+      {nil, agg} ->
+        {last, nil} = fun.(agg, nil)
+
+        Enum.reverse [last|acc]
+    end
+  end
+
+  def _aggregate([one, two|rest], acc, fun) do
+    case fun.(one, two) do
+      {nil, agg} ->
+        _aggregate([agg|rest], acc, fun)
+
+      {agg, new} ->
+        _aggregate([new|rest], [agg|acc], fun)
+    end
+  end
+
+  def aggregate(list, fun) when is_list(list) and is_function(fun),
+    do: _aggregate(list, [], fun)
 
   def parse_line(line, grammar) when is_binary line do
     case Frank.parse(line, grammar) do
       {:ok, [root: [ast]]} ->
-        {ast, line}
+        ast
 
       {:error, :nomatch, _} ->
         :ok = Logger.warn("Unmatched line: #{inspect line}")
@@ -1144,7 +1205,9 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
   defp object_model_to_struct({name, ast}) do
     %{        network_object: &network_object/1,
+                net_obj_decl: &network_object/1,
               service_object: &service_object/1,
+                svc_obj_decl: &service_object/1,
                   time_range: &time_range/1,
                   icmp_group: &icmp_group/1,
                network_group: &network_group/1,
@@ -1154,7 +1217,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     }[name].(ast)
   end
 
-  defp nat_model_to_struct({name, [{_, ast}]}, nameifs) do
+  defp nat_model_to_struct({name, ast}, nameifs) do
     %{     static_global_nat:  &static_global_nat(&1, nameifs),
            static_object_nat:  &static_object_nat(&1, nameifs),
           dynamic_global_nat: &dynamic_global_nat(&1, nameifs),
@@ -1178,15 +1241,18 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   def parse(lines) do
-    %{acl:       acl_models,
-      nat:       nat_models,
-      object: object_models,
-      interface:  if_models,
-    } = lines
-          |> Stream.map(&String.trim/1)
-          |> parse_lines(Grammar.asa_command)
-          |> aggregate_lines_into_models
-          |> Enum.group_by(&model_type/1)
+    models =
+      lines
+        |> Stream.map(&String.trim/1)
+        |> parse_lines(Grammar.asa_command)
+        |> Enum.to_list
+        |> aggregate(&lines_into_models/2)
+        |> Enum.group_by(&model_type/1)
+
+       acl_models = models[:acl]       || []
+       nat_models = models[:nat]       || []
+    object_models = models[:object]    || []
+        if_models = models[:interface] || []
 
     interfaces = Enum.map(if_models, &interface_model_to_struct/1)
 
@@ -1200,9 +1266,14 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     objects =
       object_models
         |> Stream.map(&object_model_to_struct/1)
-        |> Enum.reduce(OrderedMap.new, &OrderedMap.put(&2, &1.name, &1))
+        |> Stream.map(& {&1.name, &1})
+        |> Enum.into(OrderedMap.new)
 
-    acls = Enum.map(acl_models, &acl_model_to_struct(&1, objects))
+    acls =
+      acl_models
+        |> Stream.map(&acl_model_to_struct(&1, objects))
+        |> Stream.map(& {&1.name, &1})
+        |> Enum.into(OrderedMap.new)
 
     %{      acls: acls,
             nats: nats,
