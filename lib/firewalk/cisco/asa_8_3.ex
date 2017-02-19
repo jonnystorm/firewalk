@@ -1021,11 +1021,15 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     destination = address_mask_to_cidr(network, mask)
 
     [ad, metric] =
-      ast[:metric]
-        |> extract
-        |> String.replace(~r{\[|\]}, "")
-        |> String.split("/")
-        |> Enum.map(&String.to_integer/1)
+      if metric_str = ast[:metric] do
+        metric_str
+          |> extract
+          |> String.replace(~r{\[|\]}, "")
+          |> String.split("/")
+          |> Enum.map(&String.to_integer/1)
+      else
+        [0, 0]  # Assume connected route
+      end
 
     %Route{}
       |> set_route_type_and_flags(ast)
@@ -1282,37 +1286,44 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     }
   end
 
-  defp _join_split_routes(line, acc) do
+  defp _join_split_routes([], [], acc),
+    do: Enum.reverse acc
+
+  defp _join_split_routes([], [line], acc),
+    do: Enum.reverse [line|acc]
+
+  defp _join_split_routes([line|rest], tmp, acc) do
     cond do
       line =~ ~r|^\[| ->
-        case acc do
+        case tmp do
           [start] ->
             joined = Enum.join([start, line], " ")
 
-            {[joined], []}
+            _join_split_routes(rest, [], [joined|acc])
 
-          _ ->
+          [] ->
             :ok = Logger.error("Detected split route but found no mate: #{inspect line}")
-            {[], []}
+
+            _join_split_routes(rest, [], acc)
         end
 
       line =~ ~r/ via | directly connected / ->
-        {[line], acc}
+        _join_split_routes(rest, [], [line|acc])
 
       true ->
-        {[], [line]}
+        _join_split_routes(rest, [line], acc)
     end
   end
 
-  defp join_split_routes(lines),
-    do: Stream.transform(lines, [], &_join_split_routes/2)
+  def join_split_routes(lines),
+    do: _join_split_routes(lines, [], [])
 
   def parse_routes(lines) do
     lines
       |> Stream.map(&String.trim/1)
+      |> Enum.map(&String.replace(&1, ",", ""))
       |> join_split_routes
-      |> Stream.map(&String.replace(&1, ",", ""))
       |> parse_lines(Grammar.route)
-      |> Enum.map(fn {{:route, ast}, _} -> route(ast) end)
+      |> Enum.map(fn {:route, ast} -> route(ast) end)
   end
 end

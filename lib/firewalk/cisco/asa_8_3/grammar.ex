@@ -640,11 +640,11 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
 
     [route:
       [ route_code,
-        {:network, [ipv4]}, {:mask, [ipv4]},
+        [network: [ipv4]], [mask: [ipv4]],
         maybe(metric),
         next_hop,
         maybe(last_update),
-        maybe(nameif_name),
+        [interface: maybe(nameif_name)],
       ]
     ]
   end

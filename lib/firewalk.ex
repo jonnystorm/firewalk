@@ -9,11 +9,12 @@ defmodule Firewalk do
       case value do
         v when is_binary(v) -> v
         %NetAddr.IPv4{} = v -> to_string(v)
+        %NetAddr.IPv6{} = v -> to_string(v)
                           _ -> nil
       end
 
     next_node
-      && "  #{inspect group_name} -> #{inspect next_node}"
+      && "  #{inspect group_name} -> #{inspect next_node};"
   end
 
   defp values_to_dot(values, group_name) do
@@ -45,5 +46,44 @@ defmodule Firewalk do
         |> Enum.join("\n")
 
     ["digraph G {", dot, "}"] |> Enum.join("\n")
+  end
+
+  defp _resolve_recursive([], _objects, acc),
+    do: Enum.reverse(acc)
+
+  defp _resolve_recursive([h|t], objects, acc) do
+    case h do
+      name when is_binary(name) ->
+        _resolve_recursive([objects[name]|t], objects, acc)
+
+      %{value:  value} ->
+        _resolve_recursive([value|t], objects, acc)
+
+      %{values: values} ->
+        _resolve_recursive(values ++ t, objects, acc)
+
+      nil ->
+        _resolve_recursive(t, objects, acc)
+
+      value ->
+        _resolve_recursive(t, objects, [value|acc])
+    end
+  end
+
+  def resolve_recursive(name, objects) do
+    _resolve_recursive([objects[name]], objects, [])
+  end
+
+  def route_recursive(netaddr, routes) do
+    route =
+      routes
+        |> Enum.sort_by(& &1.destination.length, &>=/2)
+        |> Enum.find(& NetAddr.contains?(&1.destination, netaddr))
+
+    if route.type == :connected do
+      route
+    else
+      route_recursive(route.next_hop, routes)
+    end
   end
 end
