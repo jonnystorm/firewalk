@@ -6,6 +6,8 @@
 defmodule Firewalk.Cisco.ASA_8_3.Grammar do
   import Frank
 
+  alias Firewalk.Cisco.ASA_8_3
+
   defmacro flag(string) when is_binary string do
     atom =
       if string =~ ~r/^[a-zA-Z][0-9a-zA-Z\-_]*/ do
@@ -51,26 +53,7 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
 
   # http://www.cisco.com/c/en/us/td/docs/security/asa/asa91/configuration/general/asa_91_general_config/ref_ports.html
   def ip_proto_keyword,
-    do: one_of [ {"ah",     51},
-                 {"eigrp",  88},
-                 {"esp",    50},
-                 {"gre",    47},
-                 {"icmp",    1},
-                 {"icmp6",  58},
-                 {"igmp",    2},
-                 {"igrp",    9},
-                 {"ip",      0},
-                 {"ipinip",  4},
-                 {"ipsec",  50},
-                 {"nos",    94},
-                 {"ospf",   89},
-                 {"pcp",   108},
-                 {"pim",   103},
-                 {"pptp",   45},
-                 {"snp",   109},
-                 {"tcp",     6},
-                 {"udp",    17},
-               ]
+    do: one_of ASA_8_3.ip_protocols
 
   def ip_proto,
     do: one_of [ip_proto_number, ip_proto_keyword]
@@ -99,8 +82,8 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
   def action, do: [action: one_of([:permit, :deny])]
 
   def ace_proto,
-    do: [ace_spec: one_of([ ["object", object],
-                            ["object-group", object],
+    do: [ace_spec: one_of([ [object: ["object",       object_name]],
+                            [group:  ["object-group", object_name]],
                             ip_proto,
                           ])]
 
@@ -109,9 +92,9 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
   def ipv6, do: ip "::/0"
 
   def ace_ip,
-    do: [ace_spec: one_of([ ["object",       object],
-                            ["object-group", object],
-                            [host: ["host", one_of([ipv4, ipv6])]],
+    do: [ace_spec: one_of([ [object: ["object",       object_name]],
+                            [group:  ["object-group", object_name]],
+                            [host:   ["host", one_of([ipv4, ipv6])]],
                             [interface: ["interface", nameif_name]],
                             [ipv4, ipv4],
                             ipv6,
@@ -203,51 +186,23 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
                ]
 
   def icmp_type,
-    do: one_of [ 0..255,
-                 {"alternate-address",      6},
-                 {"conversion-error",      31},
-                 {"echo",                   8},
-                 {"echo-reply",             0},
-                 {"information-reply",     16},
-                 {"information-request",   15},
-                 {"mask-reply",            18},
-                 {"mask-request",          17},
-                 {"mobile-redirect",       32},
-                 {"parameter-problem",     12},
-                 {"redirect",               5},
-                 {"router-advertisement",   9},
-                 {"router-solicitation",   10},
-                 {"source-quench",          4},
-                 {"time-exceeded",         11},
-                 {"timestamp-reply",       14},
-                 {"timestamp-request",     13},
-                 {"traceroute",            30},
-                 {"unreachable",            3},
-               ]
+    do: one_of [0..255 | ASA_8_3.icmp_types()]
 
   def port_match,
-    do: one_of [ ["object-group", object],
-                    eq: ["eq",    port],
-                    gt: ["gt",    port],
-                    lt: ["lt",    port],
-                   neq: ["neq",   port],
-                 range: ["range", port, port],
-                 icmp_type: icmp_type,
+    do: one_of [ [group: ["object-group", object_name]],
+                     eq: ["eq",    port],
+                     gt: ["gt",    port],
+                     lt: ["lt",    port],
+                    neq: ["neq",   port],
+                  range: ["range", port, port],
+                  icmp_type: icmp_type,
                ]
 
   def log_level_number, do: 0..7
 
   # http://www.cisco.com/c/en/us/td/docs/security/asa/asa82/configuration/guide/config/monitor_syslog.html#wp1092814
   def log_level_keyword,
-    do: one_of [ {"alerts",        1},
-                 {"critical",      2},
-                 {"debugging",     7},
-                 {"emergencies",   0},
-                 {"errors",        3},
-                 {"informational", 6},
-                 {"notifications", 5},
-                 {"warnings",      4},
-               ]
+    do: one_of ASA_8_3.log_levels()
 
   def log_level,
     do: one_of [log_level_number, log_level_keyword]
@@ -362,7 +317,7 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
   def trange_def,
     do: [trange_def: one_of([abs_trange_def, period_trange_def])]
 
-  def group_ref, do: [group_ref: ["group-object", object]]
+  def group_ref, do: [group_ref: ["group-object", object_name]]
 
   def description,
     do: [description: ["description", many_of(~r/.*/)]]
