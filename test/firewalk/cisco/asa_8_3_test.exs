@@ -102,9 +102,9 @@ defmodule Firewalk.Cisco.ASA_8_3Test do
       end
     end
 
-    sf = &Firewalk.Cisco.ASA_8_3.split_network_group_by_color/2
+    sf = &split_network_group_by_color/2
 
-    assert Firewalk.Cisco.ASA_8_3.split_by_color("grandparent", objects, cf, sf) ==
+    assert split_by_color("grandparent", objects, cf, sf) ==
       %{"192" =>
           [ %NetworkGroup{
               name: "grandparent-192",
@@ -187,7 +187,7 @@ defmodule Firewalk.Cisco.ASA_8_3Test do
 
     objects = parse(lines).objects
 
-    assert Firewalk.Cisco.ASA_8_3.split_tcp_udp_service_group("root", objects) ==
+    assert split_tcp_udp_service_group("root", objects) ==
       %{:tcp =>
           [ %ServiceProtocolGroup{
               name: "root-tcp",
@@ -228,7 +228,7 @@ defmodule Firewalk.Cisco.ASA_8_3Test do
 
     objects = parse(lines).objects
 
-    assert Firewalk.Cisco.ASA_8_3.split_tcp_udp_service_group("root", objects) ==
+    assert split_tcp_udp_service_group("root", objects) ==
       %{:udp =>
           [ %ServiceProtocolGroup{
               name: "root",
@@ -264,7 +264,14 @@ defmodule Firewalk.Cisco.ASA_8_3Test do
 
     objects = parse(lines).objects
 
-    assert Firewalk.Cisco.ASA_8_3.explode(objects["parent"], objects) ==
+    assert explode(objects["parent"], objects) ==
       [NetAddr.ip("198.51.100.0/24"), NetAddr.ip("192.0.2.1")]
+  end
+
+  test "Merges two empty configurations" do
+    config1 = %{interfaces: [], objects: OrderedMap.new, acls: %{}, nats: []}
+    config2 = %{interfaces: [], objects: OrderedMap.new, acls: %{}, nats: []}
+
+    assert merge_configs(config1, config2) == config1
   end
 end

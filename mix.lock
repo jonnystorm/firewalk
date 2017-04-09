@@ -1,5 +1,5 @@
-%{"frank": {:git, "https://github.com/jonnystorm/frank.git", "2fdfe0ad4136678d18765294a1f07df8cd393357", []},
+%{"frank": {:git, "https://github.com/jonnystorm/frank.git", "aa548e81fff9e9234a7449bbdde7583cb0226b1a", []},
   "jds_math_ex": {:git, "https://github.com/jonnystorm/jds-math-elixir", "10d5cdf175b6a12b5ca9d97e4cb998e3324d6561", []},
-  "linear_ex": {:git, "https://github.com/jonnystorm/linear-elixir", "a6a3dd8889d921878e8c01268fbad7714c599bd0", []},
-  "netaddr_ex": {:git, "https://github.com/jonnystorm/netaddr-elixir", "807b371c12628996d75ed8ac22c7059641fe2160", []},
+  "linear_ex": {:git, "https://github.com/jonnystorm/linear-elixir", "a755ad11bcd13ad0d54ddfdadfa00a73b1f2337f", []},
+  "netaddr_ex": {:git, "https://github.com/jonnystorm/netaddr-elixir", "e0ebd049d1b59d1bbdf4cd0cbcc8f3ccfcadf8a7", []},
   "ordered_map": {:git, "https://github.com/jonnystorm/ordered-map-elixir.git", "0f0ebc95fca764e880e549bc8171bf1893cc899a", []}}

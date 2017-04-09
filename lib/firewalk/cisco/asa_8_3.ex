@@ -1,7 +1,6 @@
-# Copyright © 2017 Jonathan Storm <jds@idio.link>
-# This work is free. You can redistribute it and/or modify it under the
-# terms of the Do What The Fuck You Want To Public License, Version 2,
-# as published by Sam Hocevar. See the COPYING.WTFPL file for more details.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 defmodule Firewalk.Cisco.ASA_8_3 do
   require Logger
@@ -535,9 +534,9 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       end
 
     %NetworkObject{}
-      |> Map.put(:name, name)
-      |> Map.put(:value, value)
-      |> set_description(defs)
+    |> Map.put(:name, name)
+    |> Map.put(:value, value)
+    |> set_description(defs)
   end
 
   defp port_match_ast_to_model(nil),                   do: nil
@@ -548,19 +547,26 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     def_ = defs[:svc_obj_def]
 
     %ServiceObject{}
-      |> Map.put(:name,     extract(decl[:name]))
-      |> Map.put(:protocol, extract(def_[:protocol]))
-      |> Map.put(:source,      port_match_ast_to_model(def_[:source]))
-      |> Map.put(:destination, port_match_ast_to_model(def_[:destination]))
-      |> set_description(defs)
+    |> Map.put(:name,     extract(decl[:name]))
+    |> Map.put(:protocol, extract(def_[:protocol]))
+    |> Map.put(:source,      port_match_ast_to_model(def_[:source]))
+    |> Map.put(:destination, port_match_ast_to_model(def_[:destination]))
+    |> set_description(defs)
   end
 
   defp _time_range(name, [{:type, :absolute}|_] = ast) do
     [stime, sday, smonth, syear] = ast[:start]
     [etime, eday, emonth, eyear] = ast[:end]
 
-    [shr, smin] = String.split(stime, ":")
-    [ehr, emin] = String.split(etime, ":")
+    [shr, smin] =
+      stime
+      |> String.split(":")
+      |> Enum.map(&String.to_integer/1)
+
+    [ehr, emin] =
+      etime
+      |> String.split(":")
+      |> Enum.map(&String.to_integer/1)
 
     {:ok, start} = NaiveDateTime.new(syear, smonth, sday, shr, smin, 0)
     {:ok,  end_} = NaiveDateTime.new(eyear, emonth, eday, ehr, emin, 0)
@@ -583,7 +589,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     [thr_str, tmin_str] = String.split extract(ast[:to]), ":"
     [fhr, fmin, thr, tmin] =
       [fhr_str, fmin_str, thr_str, tmin_str]
-        |> Enum.map(&String.to_integer/1)
+      |> Enum.map(&String.to_integer/1)
 
     {:ok, from} = Time.new(fhr, fmin, 0)
     {:ok,   to} = Time.new(thr, tmin, 0)
@@ -612,9 +618,9 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     end)
 
     %ICMPGroup{}
-      |> Map.put(:name, extract(decl[:name]))
-      |> Map.put(:values, values)
-      |> set_description([description: description])
+    |> Map.put(:name, extract(decl[:name]))
+    |> Map.put(:values, values)
+    |> set_description([description: description])
   end
 
   def network_group([{_, decl}|defs]) do
@@ -634,9 +640,9 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       end)
 
     %NetworkGroup{}
-      |> Map.put(:name, extract(decl[:name]))
-      |> Map.put(:values, values)
-      |> set_description([description: description])
+    |> Map.put(:name, extract(decl[:name]))
+    |> Map.put(:values, values)
+    |> set_description([description: description])
   end
 
   def service_protocol_group([{_, decl}|defs]) do
@@ -648,10 +654,10 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     end)
 
     %ServiceProtocolGroup{}
-      |> Map.put(:name, extract(decl[:name]))
-      |> Map.put(:protocol, extract(decl[:protocol]))
-      |> Map.put(:values, values)
-      |> set_description([description: description])
+    |> Map.put(:name, extract(decl[:name]))
+    |> Map.put(:protocol, extract(decl[:protocol]))
+    |> Map.put(:values, values)
+    |> set_description([description: description])
   end
 
   def service_group([{_, decl}|defs]) do
@@ -674,9 +680,9 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       end)
 
     %ServiceGroup{}
-      |> Map.put(:name, extract(decl[:name]))
-      |> Map.put(:values, values)
-      |> set_description([description: description])
+    |> Map.put(:name, extract(decl[:name]))
+    |> Map.put(:values, values)
+    |> set_description([description: description])
   end
 
   def protocol_group([{_, decl}|defs]) do
@@ -688,9 +694,9 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     end)
 
     %ProtocolGroup{}
-      |> Map.put(:name, extract(decl[:name]))
-      |> Map.put(:values, values)
-      |> set_description([description: description])
+    |> Map.put(:name, extract(decl[:name]))
+    |> Map.put(:values, values)
+    |> set_description([description: description])
   end
 
   defp sort_by_string_length_desc(strings) when is_list(strings),
@@ -698,10 +704,10 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
   defp strings_to_regex_choice(strings) when is_list(strings) do
     strings
-      |> sort_by_string_length_desc
-      |> Enum.map(&Regex.escape/1)
-      |> Enum.join("|")
-      |> Regex.compile!
+    |> sort_by_string_length_desc
+    |> Enum.map(&Regex.escape/1)
+    |> Enum.join("|")
+    |> Regex.compile!
   end
 
   defp extract_nameifs(nil, _),         do: {nil, nil}
@@ -742,8 +748,8 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   defp set_nat_interfaces(struct, ast, nameifs) do
     {real, mapped} =
       ast[:interfaces]
-        |> extract
-        |> extract_nameifs(nameifs)
+      |> extract
+      |> extract_nameifs(nameifs)
 
     %{struct|real_if: real, mapped_if: mapped}
   end
@@ -785,19 +791,19 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     {real_source, mapped_source} = extract_static_nat ast[:source]
 
     %StaticGlobalNAT{}
-      |> set_nat_interfaces(ast, nameifs)
-      |> set_flag(ast, :after_auto)
-      |> Map.put(:real_source, real_source)
-      |> Map.put(:mapped_source, mapped_source)
-      |> set_global_nat_destination(ast)
-      |> set_flag(ast, :dns)
-      |> set_global_nat_service(ast)
-      |> set_flag(ast[:destination], :net_to_net)
-      |> set_flag(ast, :unidirectional)
-      |> set_flag(ast, :no_proxy_arp)
-      |> set_flag(ast, :route_lookup)
-      |> set_flag(ast, :inactive)
-      |> set_description(ast)
+    |> set_nat_interfaces(ast, nameifs)
+    |> set_flag(ast, :after_auto)
+    |> Map.put(:real_source, real_source)
+    |> Map.put(:mapped_source, mapped_source)
+    |> set_global_nat_destination(ast)
+    |> set_flag(ast, :dns)
+    |> set_global_nat_service(ast)
+    |> set_flag(ast[:destination], :net_to_net)
+    |> set_flag(ast, :unidirectional)
+    |> set_flag(ast, :no_proxy_arp)
+    |> set_flag(ast, :route_lookup)
+    |> set_flag(ast, :inactive)
+    |> set_description(ast)
   end
 
   defp set_object_nat_service(struct, ast) do
@@ -818,20 +824,20 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     mapped_source = extract_mapped def_
 
     %StaticObjectNAT{}
-      |> set_nat_interfaces(def_, nameifs)
-      |> Map.put(:real_source, extract(decl[:name]))
-      |> Map.put(:mapped_source, mapped_source)
-      |> set_flag(def_, :net_to_net)
-      |> set_flag(def_, :dns)
-      |> set_flag(def_, :no_proxy_arp)
-      |> set_flag(def_, :route_lookup)
-      |> set_object_nat_service(def_)
+    |> set_nat_interfaces(def_, nameifs)
+    |> Map.put(:real_source, extract(decl[:name]))
+    |> Map.put(:mapped_source, mapped_source)
+    |> set_flag(def_, :net_to_net)
+    |> set_flag(def_, :dns)
+    |> set_flag(def_, :no_proxy_arp)
+    |> set_flag(def_, :route_lookup)
+    |> set_object_nat_service(def_)
   end
 
   defp set_interface_nat(struct, ast) do
     struct
-      |> set_flag(ast, :interface)
-      |> set_flag(ast[:interface], :ipv6)
+    |> set_flag(ast, :interface)
+    |> set_flag(ast[:interface], :ipv6)
   end
 
   defp set_pat_pool(struct, ast) do
@@ -841,13 +847,13 @@ defmodule Firewalk.Cisco.ASA_8_3 do
                  || pat_pool[:object]
 
     struct
-      |> Map.put(:mapped_source, mapped_source)
-      |> set_flag(ast, :pat_pool)
-      |> set_flag(pat_pool, :extended)
-      |> set_flag(pat_pool, :flat)
-      |> set_flag(pat_pool, :include_reserve)
-      |> set_flag(pat_pool, :round_robin)
-      |> set_interface_nat(pat_pool)
+    |> Map.put(:mapped_source, mapped_source)
+    |> set_flag(ast, :pat_pool)
+    |> set_flag(pat_pool, :extended)
+    |> set_flag(pat_pool, :flat)
+    |> set_flag(pat_pool, :include_reserve)
+    |> set_flag(pat_pool, :round_robin)
+    |> set_interface_nat(pat_pool)
   end
 
   def dynamic_global_nat([{_, ast}], nameifs) do
@@ -860,17 +866,17 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     mapped_source = extract_mapped ast[:source]
 
     %DynamicGlobalNAT{}
-      |> set_nat_interfaces(ast, nameifs)
-      |> set_flag(ast, :after_auto)
-      |> Map.put(:real_source, real_source)
-      |> Map.put(:mapped_source, mapped_source)
-      |> set_pat_pool(ast[:source][:mapped])
-      |> set_global_nat_destination(ast)
-      |> set_flag(ast, :dns)
-      |> set_global_nat_service(ast)
-      |> set_flag(ast[:destination], :net_to_net)
-      |> set_flag(ast, :inactive)
-      |> set_description(ast)
+    |> set_nat_interfaces(ast, nameifs)
+    |> set_flag(ast, :after_auto)
+    |> Map.put(:real_source, real_source)
+    |> Map.put(:mapped_source, mapped_source)
+    |> set_pat_pool(ast[:source][:mapped])
+    |> set_global_nat_destination(ast)
+    |> set_flag(ast, :dns)
+    |> set_global_nat_service(ast)
+    |> set_flag(ast[:destination], :net_to_net)
+    |> set_flag(ast, :inactive)
+    |> set_description(ast)
   end
 
   defp set_dynamic_object_nat_mapped(struct, ast) do
@@ -884,16 +890,16 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       end
 
     struct
-      |> Map.put(:mapped_source, mapped_source)
-      |> set_interface_nat(mapped)
-      |> set_flag(mapped, :dns)
+    |> Map.put(:mapped_source, mapped_source)
+    |> set_interface_nat(mapped)
+    |> set_flag(mapped, :dns)
   end
 
   def dynamic_object_nat([{_, decl}, {_, def_}], nameifs) do
     %DynamicObjectNAT{}
-      |> Map.put(:real_source, extract(decl[:name]))
-      |> set_nat_interfaces(def_, nameifs)
-      |> set_dynamic_object_nat_mapped(def_)
+    |> Map.put(:real_source, extract(decl[:name]))
+    |> set_nat_interfaces(def_, nameifs)
+    |> set_dynamic_object_nat_mapped(def_)
   end
 
   def standard_ace(ast) do
@@ -905,14 +911,14 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       end
 
     %StandardACE{}
-      |> Map.put(:criterion, criterion)
-      |> copy(:acl_name, from: ast)
-      |> copy(:action, from: ast)
+    |> Map.put(:criterion, criterion)
+    |> copy(:acl_name, from: ast)
+    |> copy(:action, from: ast)
   end
 
   defp disambiguate_ace_criteria(criteria, objects) do
     case criteria do
-      [protocol, source, {_, str} = u1, u2] when is_binary u1 ->
+      [protocol, source, {_, str} = u1, u2] when is_binary str ->
         case objects[str] do
           %NetworkObject{} ->
             [         protocol: protocol,
@@ -1026,38 +1032,38 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   def extended_ace(ast, objects) do
     criteria =
       ast
-        |> Keyword.get_values(:ace_spec)
-        |> groom_ace_criteria
-        |> disambiguate_ace_criteria(objects)
+      |> Keyword.get_values(:ace_spec)
+      |> groom_ace_criteria
+      |> disambiguate_ace_criteria(objects)
 
     %ExtendedACE{}
-      |> copy(:acl_name, from: ast)
-      |> copy(:action, from: ast)
-      |> set_ace_criteria(criteria)
-      |> set_ace_log(ast)
-      |> set_ace_time_range(ast)
-      |> set_flag(ast, :inactive)
+    |> copy(:acl_name, from: ast)
+    |> copy(:action, from: ast)
+    |> set_ace_criteria(criteria)
+    |> set_ace_log(ast)
+    |> set_ace_time_range(ast)
+    |> set_flag(ast, :inactive)
   end
 
   def acl_remark(ast) do
     %ACLRemark{}
-      |> copy(:acl_name, from: ast)
-      |> Map.put(:remark, Enum.join(ast[:remark], " "))
+    |> copy(:acl_name, from: ast)
+    |> Map.put(:remark, Enum.join(ast[:remark], " "))
   end
 
   def acl([{_, head}|_] = ace_models, objects) do
     aces =
       ace_models
-        |> Stream.map(fn {type, ast} ->
-          case type do
-            :std_ace -> standard_ace(ast)
-            :ext_ace -> extended_ace(ast, objects)
-            :acl_rem -> acl_remark(ast)
-          end
-        end)
-        |> Stream.with_index(1)
-        |> Stream.map(fn {a, i} -> {i, a} end)
-        |> Enum.into(OrderedMap.new())
+      |> Stream.map(fn {type, ast} ->
+        case type do
+          :std_ace -> standard_ace(ast)
+          :ext_ace -> extended_ace(ast, objects)
+          :acl_rem -> acl_remark(ast)
+        end
+      end)
+      |> Stream.with_index(1)
+      |> Stream.map(fn {a, i} -> {i, a} end)
+      |> Enum.into(OrderedMap.new())
 
     %ACL{name: extract(head[:acl_name]), aces: aces}
   end
@@ -1112,22 +1118,22 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     [ad, metric] =
       if metric_str = ast[:metric] do
         metric_str
-          |> extract
-          |> String.replace(~r{\[|\]}, "")
-          |> String.split("/")
-          |> Enum.map(&String.to_integer/1)
+        |> extract
+        |> String.replace(~r{\[|\]}, "")
+        |> String.split("/")
+        |> Enum.map(&String.to_integer/1)
       else
         [0, 0]  # Assume connected route
       end
 
     %Route{}
-      |> set_route_type_and_flags(ast)
-      |> Map.put(:destination, destination)
-      |> Map.put(:admin_distance, ad)
-      |> Map.put(:metric, metric)
-      |> copy(:next_hop, from: ast)
-      |> copy(:last_update, from: ast)
-      |> copy(:interface, from: ast)
+    |> set_route_type_and_flags(ast)
+    |> Map.put(:destination, destination)
+    |> Map.put(:admin_distance, ad)
+    |> Map.put(:metric, metric)
+    |> copy(:next_hop, from: ast)
+    |> copy(:last_update, from: ast)
+    |> copy(:interface, from: ast)
   end
 
   defp aggregate_type({type1, _} = ast1, ast2) do
@@ -1289,8 +1295,8 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
   defp parse_lines(stream, grammar) do
     stream
-      |> Stream.map(&parse_line(&1, grammar))
-      |> Stream.filter(fn nil -> false; x -> x end)
+    |> Stream.map(&parse_line(&1, grammar))
+    |> Stream.filter(fn nil -> false; x -> x end)
   end
 
   defp interface_model_to_struct({:interface, ast}),
@@ -1336,11 +1342,11 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   def parse(lines) do
     models =
       lines
-        |> Stream.map(&String.trim/1)
-        |> parse_lines(Grammar.asa_command)
-        |> Enum.to_list
-        |> aggregate(&lines_into_models/2)
-        |> Enum.group_by(&model_type/1)
+      |> Stream.map(&String.trim/1)
+      |> parse_lines(Grammar.asa_command)
+      |> Enum.to_list
+      |> aggregate(&lines_into_models/2)
+      |> Enum.group_by(&model_type/1)
 
        acl_models = models[:acl]       || []
        nat_models = models[:nat]       || []
@@ -1351,22 +1357,22 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
     nameifs =
       interfaces
-        |> Enum.map(& &1.nameif)
-        |> Enum.filter(& &1 != nil)
+      |> Enum.map(& &1.nameif)
+      |> Enum.filter(& &1 != nil)
 
     nats = Enum.map(nat_models, &nat_model_to_struct(&1, nameifs))
 
     objects =
       object_models
-        |> Stream.map(&object_model_to_struct/1)
-        |> Stream.map(& {&1.name, &1})
-        |> Enum.into(OrderedMap.new)
+      |> Stream.map(&object_model_to_struct/1)
+      |> Stream.map(& {&1.name, &1})
+      |> Enum.into(OrderedMap.new)
 
     acls =
       acl_models
-        |> Stream.map(&acl_model_to_struct(&1, objects))
-        |> Stream.map(& {&1.name, &1})
-        |> Enum.into(OrderedMap.new)
+      |> Stream.map(&acl_model_to_struct(&1, objects))
+      |> Stream.map(& {&1.name, &1})
+      |> Enum.into(OrderedMap.new)
 
     %{      acls: acls,
             nats: nats,
@@ -1409,11 +1415,11 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
   def parse_routes(lines) do
     lines
-      |> Stream.map(&String.trim/1)
-      |> Enum.map(&String.replace(&1, ",", ""))
-      |> join_split_routes
-      |> parse_lines(Grammar.route)
-      |> Enum.map(fn {:route, ast} -> route(ast) end)
+    |> Stream.map(&String.trim/1)
+    |> Enum.map(&String.replace(&1, ",", ""))
+    |> join_split_routes
+    |> parse_lines(Grammar.route)
+    |> Enum.map(fn {:route, ast} -> route(ast) end)
   end
 
   def dereference(value, objects) do
@@ -1431,8 +1437,8 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   defp get_next_values({:group, parent}, colored, split_fun) do
     grouped_by_color =
       colored
-        |> group_values_by_key
-        |> Enum.to_list
+      |> group_values_by_key
+      |> Enum.to_list
 
     split_fun.(parent, grouped_by_color)
   end
@@ -1461,8 +1467,8 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
         {{0, values}, rest} ->
           rest
-            |> Keyword.update(:tcp, values, & values ++ &1)
-            |> Keyword.update(:udp, values, & values ++ &1)
+          |> Keyword.update(:tcp, values, & values ++ &1)
+          |> Keyword.update(:udp, values, & values ++ &1)
       end
 
     Enum.map(groomed_values, fn {color, values} ->
@@ -1558,8 +1564,8 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   defp _route_recursive(netaddr, routes) do
     route =
       routes
-        |> Enum.sort_by(& &1.destination.length, &>=/2)
-        |> Enum.find(& NetAddr.contains?(&1.destination, netaddr))
+      |> Enum.sort_by(& &1.destination.length, &>=/2)
+      |> Enum.find(& NetAddr.contains?(&1.destination, netaddr))
 
     if route.type == :connected do
       route
@@ -1639,18 +1645,18 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
   defp _explode(terms, _last_terms, objects, pattern) do
     terms
-      |> Enum.flat_map(&ungroup(&1, objects, pattern))
-      |> _explode(terms, objects, pattern)
+    |> Enum.flat_map(&ungroup(&1, objects, pattern))
+    |> _explode(terms, objects, pattern)
   end
 
   # TODO: Split tcp-udp service groups and create new ACEs
   def explode(term, objects, pattern \\ "")
   def explode(%ExtendedACE{} = ace, objects, pattern) do
     fun = fn x ->
-      x
+        x
         |> ungroup(objects, pattern)
         |> Enum.map(&reference/1)
-    end
+      end
 
     for proto <- fun.(ace.protocol),
           src <- fun.(ace.source),
@@ -1679,9 +1685,9 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     [values1, values2] =
       Enum.map([object1, object2], fn o ->
         o
-          |> explode(objects)
-          |> strip_objects
-          |> Enum.sort
+        |> explode(objects)
+        |> strip_objects
+        |> Enum.sort
       end)
 
     values1 == values2
@@ -1696,34 +1702,39 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
   #def generate_reference_map(parsed_config) do
   #  parsed_config.acls
-  #    |> OrderedMap.values
-  #    |> Enum.flat_map(fn acl ->
-  #      Enum.map(acl.aces, & {acl.name, &1})
-  #    end)
-  #    |> Stream.concat(OrderedMap.values(parsed_config.objects))
-  #    |> Stream.concat(OrderedMap.values(parsed_config.nats))
-  #    |> Enum.reduce(%{}, &_generate_reference_map/2)
+  #  |> OrderedMap.values
+  #  |> Enum.flat_map(fn acl ->
+  #    Enum.map(acl.aces, & {acl.name, &1})
+  #  end)
+  #  |> Stream.concat(OrderedMap.values(parsed_config.objects))
+  #  |> Stream.concat(OrderedMap.values(parsed_config.nats))
+  #  |> Enum.reduce(%{}, &_generate_reference_map/2)
   #end
 
   defp get_int_suffix,
     do: rem(:erlang.unique_integer([:positive]) + 100, 1000)
 
   defp replace_object_refs(config, name, new_name) do
-    Enum.map(config.objects, fn
-      {_, %{name: ^name} = object} ->
-        {new_name, %{object|name: new_name}}
+    objects =
+      config.objects
+      |> Enum.map(fn
+        {_, %{name: ^name} = object} ->
+          {new_name, %{object|name: new_name}}
 
-      {key, %{values: values} = group} ->
-        {key, %{group |
-          values: Enum.map(values, fn
-            {:object, ^name} -> {:object, new_name}
-            { :group, ^name} -> { :group, new_name}
-                       value -> value
-          end)
-        }}
+        {key, %{values: values} = group} ->
+          {key, %{group |
+            values: Enum.map(values, fn
+              {:object, ^name} -> {:object, new_name}
+              { :group, ^name} -> { :group, new_name}
+                         value -> value
+            end)
+          }}
 
-      other -> other
-    end)
+        other -> other
+      end)
+      |> Enum.into(OrderedMap.new)
+
+    %{config|objects: objects}
   end
 
   defp replace_ref_in_map(map, key, value, new_value) do
@@ -1737,62 +1748,79 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defp replace_nat_refs(config, name, new_name) do
-    Enum.map(config.nats, fn nat ->
-      next_nat =
-        nat
+    nats =
+      Enum.map(config.nats, fn nat ->
+        next_nat =
+          nat
           |> replace_ref_in_map(:real_source, name, new_name)
           |> replace_ref_in_map(:mapped_source, name, new_name)
           |> replace_ref_in_map(:real_destination, name, new_name)
           |> replace_ref_in_map(:mapped_destination, name, new_name)
 
-      case next_nat do
-        %{service: {^name, mapped}} = nat ->
-          %{nat|service: {new_name, mapped}}
+        case next_nat do
+          %{service: {^name, mapped}} = nat ->
+            %{nat|service: {new_name, mapped}}
 
-        %{service: {real, ^name}} = nat ->
-          %{nat|service: {real, new_name}}
+          %{service: {real, ^name}} = nat ->
+            %{nat|service: {real, new_name}}
 
-        other -> other
-      end
-    end)
+          other -> other
+        end
+      end)
+
+    %{config|nats: nats}
   end
 
   defp replace_acl_refs(config, name, new_name) do
-    Enum.map(config.acls, fn {seq, ace} ->
-      next_ace =
-        ace
-          |> replace_ref_in_map(:protocol, name, new_name)
-          |> replace_ref_in_map(:source, name, new_name)
-          |> replace_ref_in_map(:source_port, name, new_name)
-          |> replace_ref_in_map(:destination, name, new_name)
-          |> replace_ref_in_map(:destination_port, name, new_name)
+    acls =
+      Enum.map(config.acls, fn {acl_name, acl} ->
+        aces =
+          acl.aces
+          |> Enum.map(fn {seq, ace} ->
+            next_ace =
+              ace
+              |> replace_ref_in_map(:protocol, name, new_name)
+              |> replace_ref_in_map(:source, name, new_name)
+              |> replace_ref_in_map(:source_port, name, new_name)
+              |> replace_ref_in_map(:destination, name, new_name)
+              |> replace_ref_in_map(:destination_port, name, new_name)
 
-      {seq, next_ace}
-    end)
+            {seq, next_ace}
+          end)
+          |> Enum.into(OrderedMap.new)
+
+        {acl_name, %{acl|aces: aces}}
+      end)
+
+    %{config|acls: acls}
   end
 
   defp replace_all_refs(config, name, new_name) do
     config
-      |> replace_object_refs(name, new_name)
-      |> replace_nat_refs(name, new_name)
-      |> replace_acl_refs(name, new_name)
+    |> replace_object_refs(name, new_name)
+    |> replace_nat_refs(name, new_name)
+    |> replace_acl_refs(name, new_name)
   end
 
+  @type omap :: OrderedMap.t
+  @type config :: %{interfaces: list, objects: omap, acls: %{}, nats: list}
+
+  @spec merge_configs(config, config) :: config
   def merge_configs(config1, config2) do
     new_config2 =
       config2.objects
-        |> OrderedMap.keys
-        |> Stream.filter(& config1[&1] != nil)
-        |> Stream.filter(& config1[&1] != config2[&1])
-        |> Enum.reduce(config2, fn(name, acc) ->
-          replace_all_refs(acc, name, "#{name}-#{get_int_suffix()}")
-        end)
+      |> OrderedMap.keys
+      |> Stream.filter(& config1[&1] != nil)
+      |> Stream.filter(& config1[&1] != config2[&1])
+      |> Enum.reduce(config2, fn(name, acc) ->
+        replace_all_refs(acc, name, "#{name}-#{get_int_suffix()}")
+      end)
 
     objects =
       config1.objects
-        |> Enum.concat(new_config2.objects)
-        |> Enum.uniq
-        |> Enum.into(OrderedMap.new())
+      |> Enum.concat(new_config2.objects)
+      |> Enum.uniq
+      |> Enum.into(OrderedMap.new())
 
     acls1 = Enum.into(config1.acls, %{})
     acls2 = Enum.into(new_config2.acls, %{})
@@ -1800,11 +1828,11 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     acls = Map.merge(acls1, acls2, fn(_k, acl1, acl2) ->
       aces =
         acl1.aces
-          |> OrderedMap.values
-          |> Stream.concat(OrderedMap.values(acl2.aces))
-          |> Stream.with_index(1)
-          |> Stream.map(fn {a, i} -> {i, a} end)
-          |> Enum.into(OrderedMap.new())
+        |> OrderedMap.values
+        |> Stream.concat(OrderedMap.values(acl2.aces))
+        |> Stream.with_index(1)
+        |> Stream.map(fn {a, i} -> {i, a} end)
+        |> Enum.into(OrderedMap.new())
 
       %{acl1|aces: aces}
     end)
@@ -1955,8 +1983,8 @@ defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.NetworkGroup do
 
     values =
       object.values
-        |> Enum.map(&value_to_string/1)
-        |> Enum.join("\n ")
+      |> Enum.map(&value_to_string/1)
+      |> Enum.join("\n ")
 
     [ "object-group network #{object.name}",
       " #{description}#{values}",
@@ -2041,8 +2069,8 @@ defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.ServiceGroup do
 
     values =
       object.values
-        |> Enum.map(&value_to_string/1)
-        |> Enum.join("\n ")
+      |> Enum.map(&value_to_string/1)
+      |> Enum.join("\n ")
 
     [ "object-group service #{object.name}",
       " #{description}#{values}",
@@ -2071,8 +2099,8 @@ defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.ProtocolGroup do
 
     values =
       object.values
-        |> Enum.map(&value_to_string/1)
-        |> Enum.join("\n ")
+      |> Enum.map(&value_to_string/1)
+      |> Enum.join("\n ")
 
     [ "object-group protocol #{object.name}",
       " #{description}#{values}",
@@ -2115,8 +2143,8 @@ defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.ServiceProtocolGroup do
 
     values =
       object.values
-        |> Enum.map(&value_to_string/1)
-        |> Enum.join("\n ")
+      |> Enum.map(&value_to_string/1)
+      |> Enum.join("\n ")
 
     [ "object-group service #{object.name} #{proto}",
       " #{description}#{values}",
@@ -2151,8 +2179,8 @@ defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.ICMPGroup do
 
     values =
       object.values
-        |> Enum.map(&value_to_string/1)
-        |> Enum.join("\n ")
+      |> Enum.map(&value_to_string/1)
+      |> Enum.join("\n ")
 
     [ "object-group icmp-type #{object.name}",
       " #{description}#{values}",
@@ -2172,17 +2200,17 @@ defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.PeriodicTimeRange do
 
       _ ->
         days
-          |> Enum.map(fn d ->
-            %{1 => "Monday",
-              2 => "Tuesday",
-              3 => "Wednesday",
-              4 => "Thursday",
-              5 => "Friday",
-              6 => "Saturday",
-              7 => "Sunday",
-            }[d]
-          end)
-          |> Enum.join(" ")
+        |> Enum.map(fn d ->
+          %{1 => "Monday",
+            2 => "Tuesday",
+            3 => "Wednesday",
+            4 => "Thursday",
+            5 => "Friday",
+            6 => "Saturday",
+            7 => "Sunday",
+          }[d]
+        end)
+        |> Enum.join(" ")
       end
   end
 
@@ -2497,8 +2525,8 @@ defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.ACL do
 
   def to_string(acl) do
     acl.aces
-      |> OrderedMap.values
-      |> Enum.map(&Kernel.to_string/1)
-      |> Enum.join("\n")
+    |> OrderedMap.values
+    |> Enum.map(&Kernel.to_string/1)
+    |> Enum.join("\n")
   end
 end

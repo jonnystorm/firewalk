@@ -1,7 +1,6 @@
-# Copyright © 2017 Jonathan Storm <jds@idio.link>
-# This work is free. You can redistribute it and/or modify it under the
-# terms of the Do What The Fuck You Want To Public License, Version 2,
-# as published by Sam Hocevar. See the COPYING.WTFPL file for more details.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 defmodule Firewalk.Cisco.ASA_8_3.Grammar do
   import Frank
@@ -12,9 +11,9 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
     atom =
       if string =~ ~r/^[a-zA-Z][0-9a-zA-Z\-_]*/ do
         string
-          |> String.downcase
-          |> String.replace("-", "_")
-          |> String.to_atom
+        |> String.downcase
+        |> String.replace("-", "_")
+        |> String.to_atom
 
       else
         raise "Flag must begin with a letter and may only contain alphanumeric characters or hyphen: #{string}"
@@ -30,9 +29,9 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
 
   def name,
     do: "`~!@#$%^&*()\\-_=+[]{}\\|;:'\",<.>\/?"
-          |> Regex.escape
-          |> delimit("[", "a-zA-Z0-9]+")
-          |> Regex.compile!
+        |> Regex.escape
+        |> delimit("[", "a-zA-Z0-9]+")
+        |> Regex.compile!
 
   def acl_name,    do: name
 
@@ -43,9 +42,9 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
   # Object names cannot contain '\', '/', or ','
   def object_name,
     do: "`~!@#$%^&*()\\-_=+[]{}|;:'\"<.>?"
-          |> Regex.escape
-          |> delimit("[", "a-zA-Z0-9]+")
-          |> Regex.compile!
+        |> Regex.escape
+        |> delimit("[", "a-zA-Z0-9]+")
+        |> Regex.compile!
 
   def octet, do: 0..255
 
