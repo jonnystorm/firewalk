@@ -29,9 +29,9 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
     do: "#{first}#{string}#{last}"
 
   def name,
-    do: "`~!@#$%^&*()\\-_=+[]{}\\|;:'\",<.>\/?a-zA-Z0-9"
+    do: "`~!@#$%^&*()\\-_=+[]{}\\|;:'\",<.>\/?"
           |> Regex.escape
-          |> delimit("[", "]+")
+          |> delimit("[", "a-zA-Z0-9]+")
           |> Regex.compile!
 
   def acl_name,    do: name
@@ -42,9 +42,9 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
 
   # Object names cannot contain '\', '/', or ','
   def object_name,
-    do: "`~!@#$%^&*()\\-_=+[]{}|;:'\"<.>?a-zA-Z0-9"
+    do: "`~!@#$%^&*()\\-_=+[]{}|;:'\"<.>?"
           |> Regex.escape
-          |> delimit("[", "]+")
+          |> delimit("[", "a-zA-Z0-9]+")
           |> Regex.compile!
 
   def octet, do: 0..255
@@ -352,7 +352,7 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
     do: [svc_obj_decl: [~w(object service), name: [object_name]]]
 
   def service_object_def,
-    do: [svc_obj_def: ["service", [protocol: ip_proto], service_spec]]
+    do: [svc_obj_def: ["service", [protocol: ip_proto], maybe(service_spec)]]
 
   def icmp_group_decl,
     do: [icmp_grp_decl: [~w(object-group icmp-type), name: [object_name]]]
@@ -396,10 +396,14 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
     do: [svc_grp_decl: [~w(object-group service), name: [object_name]]]
 
   def service_group_def do
-    protocol = [protocol: one_of([ip_proto, {"tcp-udp", :tcp_udp}])]
+    protocol = [protocol: one_of([ ip_proto,
+                                   {"icmp6", :icmp6},
+                                   {"tcp-udp", :tcp_udp},
+                                 ])]
 
     [svc_grp_def:
       [ "service-object", one_of([ ["object", object],
+                                   [protocol, icmp_type],
                                    [protocol, maybe(service_spec)],
                                  ]),
       ]
@@ -407,7 +411,7 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
   end
 
   def protocol_group_decl,
-    do: [proto_grp_decl: [~w(object-group protocol), object_name]]
+    do: [proto_grp_decl: [~w(object-group protocol), name: [object_name]]]
 
   def protocol_group_def,
     do: [proto_grp_def: ["protocol-object", ip_proto]]

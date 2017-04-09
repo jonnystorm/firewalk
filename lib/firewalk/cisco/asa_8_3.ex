@@ -215,9 +215,9 @@ defmodule Firewalk.Cisco.ASA_8_3 do
                      dns: boolean,
             no_proxy_arp: boolean,
             route_lookup: boolean,
-                protocol: :tcp | :udp,
-               real_port: port_num,
-             mapped_port: port_num,
+                protocol: nil | :tcp | :udp,
+               real_port: nil | port_num,
+             mapped_port: nil | port_num,
     }
   end
 
@@ -450,7 +450,8 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   def ip_protocols do
-    [ {"ah",     51},
+    [ {"icmp",    1},
+      {"ah",     51},
       {"eigrp",  88},
       {"esp",    50},
       {"gre",    47},
@@ -661,6 +662,9 @@ defmodule Firewalk.Cisco.ASA_8_3 do
         {:group_ref, [group]} ->
           {:group, group}
 
+        {_, [object: [object]]} ->
+          {:object, object}
+
         {_, ast} ->
           %ServiceObject{
                protocol: extract(ast[:protocol]),
@@ -722,7 +726,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       [   object:  [object]] -> object
       [interface:        []] -> {:interface, nil}
       [interface: [ipv6: _]] -> {:interface, :ipv6}
-                        [ip] -> [ip]
+                        [ip] -> ip
     end
   end
 
@@ -895,8 +899,8 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   def standard_ace(ast) do
     criterion =
       case ast[:criterion] do
-        [ addr, mask] -> address_mask_to_cidr(addr, mask)
         [:host, ipv4] -> ipv4
+        [ addr, mask] -> address_mask_to_cidr(addr, mask)
                 :any4 -> :any4
       end
 
@@ -1009,8 +1013,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defp set_ace_log(struct, ast) do
-    %{struct |
-               log: ast[:log] != nil,
+    %{struct | log: ast[:log] != nil,
          log_level: extract(ast[:log][:level]),
       log_interval: extract(ast[:log][:interval]),
        log_disable: ast[:log][:disable] != nil
@@ -1042,14 +1045,19 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       |> Map.put(:remark, Enum.join(ast[:remark], " "))
   end
 
-  def acl([{_, head}|_] = aces, objects) do
-    aces = Enum.map(aces, fn {type, ast} ->
-        case type do
-          :std_ace -> standard_ace(ast)
-          :ext_ace -> extended_ace(ast, objects)
-          :acl_rem -> acl_remark(ast)
-        end
-      end)
+  def acl([{_, head}|_] = ace_models, objects) do
+    aces =
+      ace_models
+        |> Stream.map(fn {type, ast} ->
+          case type do
+            :std_ace -> standard_ace(ast)
+            :ext_ace -> extended_ace(ast, objects)
+            :acl_rem -> acl_remark(ast)
+          end
+        end)
+        |> Stream.with_index(1)
+        |> Stream.map(fn {a, i} -> {i, a} end)
+        |> Enum.into(OrderedMap.new())
 
     %ACL{name: extract(head[:acl_name]), aces: aces}
   end
@@ -1407,6 +1415,484 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       |> parse_lines(Grammar.route)
       |> Enum.map(fn {:route, ast} -> route(ast) end)
   end
+
+  def dereference(value, objects) do
+    case value do
+      {:object, name} -> objects[name]
+      {:group,  name} -> objects[name]
+      _               -> value
+    end
+  end
+
+  defp group_values_by_key(tuples),
+    do: Enum.group_by(tuples, &elem(&1, 0), &elem(&1, 1))
+
+  defp get_next_values(_, [], _), do: {[], []}
+  defp get_next_values({:group, parent}, colored, split_fun) do
+    grouped_by_color =
+      colored
+        |> group_values_by_key
+        |> Enum.to_list
+
+    split_fun.(parent, grouped_by_color)
+  end
+
+  def split_network_group_by_color(parent, [{color, _}]),
+    do: {[{color, {:group, parent}}], []}
+
+  def split_network_group_by_color(parent, values_by_color) do
+    Enum.map(values_by_color, fn {color, values} ->
+      name = "#{parent}-#{color}"
+      group = %NetworkGroup{name: name, values: Enum.reverse(values)}
+
+      {{color, {:group, name}}, {color, group}}
+    end)
+    |> Enum.unzip
+  end
+
+  defp flatten_unzipped({a, b}),
+    do: {List.flatten(a), List.flatten(b)}
+
+  def split_service_protocol_group_by_color(parent, values_by_color, objects) do
+    groomed_values =
+      case List.keytake(values_by_color, 0, 0) do
+        nil ->
+          values_by_color
+
+        {{0, values}, rest} ->
+          rest
+            |> Keyword.update(:tcp, values, & values ++ &1)
+            |> Keyword.update(:udp, values, & values ++ &1)
+      end
+
+    Enum.map(groomed_values, fn {color, values} ->
+      case objects[parent] do
+        %ServiceProtocolGroup{name: oname, protocol: protocol}
+          when protocol in [color, :tcp_udp]
+        ->
+          name =
+            case protocol do
+              ^color   -> oname
+              :tcp_udp -> "#{oname}-#{color}"
+            end
+
+          group = %ServiceProtocolGroup{
+            name: name,
+            protocol: color,
+            values: Enum.reverse(values),
+          }
+
+          {{color, {:group, name}}, {color, group}}
+
+        _ ->
+          {[], []}
+      end
+    end)
+    |> Enum.unzip
+    |> flatten_unzipped
+  end
+
+  defp accrete_colored(object, list, fun) do
+    if color = fun.(object) do
+      ref =
+        case object do
+          %{value: _} -> {:object, object.name}
+                other -> other
+        end
+
+      [{color, ref}|list]
+    else
+      :ok = Logger.warn("Unable to accrete colorless object: #{inspect object}")
+
+      list
+    end
+  end
+
+  defp _split_by_color([[]], [[]], _os, _cf, _sf, acc),
+    do: acc
+
+  defp _split_by_color([[], [root]], [c1, _c2], os, cf, sf, acc) do
+    {_, new_groups} = get_next_values(root, c1, sf)
+
+    last_acc = group_values_by_key(new_groups ++ acc)
+
+    _split_by_color([[]], [[]], os, cf, sf, last_acc)
+  end
+
+  defp _split_by_color([[], [parent|rest]|rt], [ch1, ch2|ct], os, cf, sf, acc) do
+    {new_ch, new_groups} = get_next_values(parent, ch1, sf)
+
+    next_ch = new_ch ++ ch2
+    next_acc = new_groups ++ acc
+
+    _split_by_color([rest|rt], [next_ch|ct], os, cf, sf, next_acc)
+  end
+
+  defp _split_by_color([[ref|rest]|rt], [ch|ct], os, cf, sf, acc) do
+    case dereference(ref, os) do
+      %{name: _, values: values} ->
+        next_refs = [values, [ref|rest]|rt]
+
+        _split_by_color(next_refs, [[], ch|ct], os, cf, sf, acc)
+
+      other ->
+        next_ch = accrete_colored(other, ch, cf)
+
+        _split_by_color([rest|rt], [next_ch|ct], os, cf, sf, acc)
+    end
+  end
+
+  def split_by_color(name, objects, color_fun, split_fun) do
+    cf = color_fun
+    sf = split_fun
+
+    case objects[name] do
+      %{values: _} ->
+        _split_by_color([[{:group, name}]], [[]], objects, cf, sf, [])
+
+      other ->
+        {accrete_colored(other, [], cf), []}
+    end
+  end
+
+  defp _route_recursive(netaddr, routes) do
+    route =
+      routes
+        |> Enum.sort_by(& &1.destination.length, &>=/2)
+        |> Enum.find(& NetAddr.contains?(&1.destination, netaddr))
+
+    if route.type == :connected do
+      route
+    else
+      route_recursive(route.next_hop, routes)
+    end
+  end
+
+  def route_recursive(netaddr, routes)
+
+  def route_recursive(%NetAddr.IPv4{} = netaddr, routes),
+    do: _route_recursive(netaddr, routes)
+
+  def route_recursive(%NetAddr.IPv6{} = netaddr, routes),
+    do: _route_recursive(netaddr, routes)
+
+  def route_recursive(_, _), do: nil
+
+  def get_interface(term, routes) do
+    address =
+      case term do
+        %{value: %NetAddr.IPv4{} = value} -> value
+        %{value: %NetAddr.IPv6{} = value} -> value
+                 %NetAddr.IPv4{} = value  -> value
+                 %NetAddr.IPv6{} = value  -> value
+      end
+
+    if route = route_recursive(address, routes) do
+      route.interface
+    else
+      nil
+    end
+  end
+
+  def split_by_interface(name, objects, routes) do
+    color_fun = &get_interface(&1, routes)
+    split_fun = &split_network_group_by_color/2
+
+    split_by_color(name, objects, color_fun, split_fun)
+  end
+
+  def split_tcp_udp_service_group(name, objects) do
+    color_fun = fn _ -> 0 end
+    split_fun = &split_service_protocol_group_by_color(&1, &2, objects)
+
+    split_by_color(name, objects, color_fun, split_fun)
+  end
+
+  def reference(object) do
+    case object do
+      %{name: name, values: _} -> {:group, name}
+      %{name: name}            -> {:object, name}
+      _                        -> object
+    end
+  end
+
+  def ungroup(object, objects, pattern \\ "")
+  def ungroup(object, objects, pattern) do
+    case dereference(object, objects) do
+      %ServiceGroup{} ->
+        [object]
+
+      %{name: name, values: values} = group ->
+        if name =~ pattern do
+          values
+        else
+          [group]
+        end
+
+      other ->
+        [other]
+    end
+  end
+
+  defp _explode(terms, terms, _objects, _pattern),
+    do: terms
+
+  defp _explode(terms, _last_terms, objects, pattern) do
+    terms
+      |> Enum.flat_map(&ungroup(&1, objects, pattern))
+      |> _explode(terms, objects, pattern)
+  end
+
+  # TODO: Split tcp-udp service groups and create new ACEs
+  def explode(term, objects, pattern \\ "")
+  def explode(%ExtendedACE{} = ace, objects, pattern) do
+    fun = fn x ->
+      x
+        |> ungroup(objects, pattern)
+        |> Enum.map(&reference/1)
+    end
+
+    for proto <- fun.(ace.protocol),
+          src <- fun.(ace.source),
+        sport <- fun.(ace.source_port),
+          dst <- fun.(ace.destination),
+        dport <- fun.(ace.destination_port),
+      do: %{ace |   protocol: proto,
+                      source: src,
+                 source_port: sport,
+                 destination: dst,
+            destination_port: dport,
+          }
+  end
+
+  def explode(object, objects, pattern),
+    do: _explode([object], [], objects, pattern)
+
+  defp strip_objects(objects) do
+    Enum.map(objects, fn
+      %{value: value} -> value
+                other -> other
+    end)
+  end
+
+  def congruent?(object1, object2, objects) do
+    [values1, values2] =
+      Enum.map([object1, object2], fn o ->
+        o
+          |> explode(objects)
+          |> strip_objects
+          |> Enum.sort
+      end)
+
+    values1 == values2
+  end
+
+  #defp _generate_reference_map(object, acc) do
+  #  case object do
+  #    %{name: name, values: values} ->
+  #      Map.
+  #  end
+  #end
+
+  #def generate_reference_map(parsed_config) do
+  #  parsed_config.acls
+  #    |> OrderedMap.values
+  #    |> Enum.flat_map(fn acl ->
+  #      Enum.map(acl.aces, & {acl.name, &1})
+  #    end)
+  #    |> Stream.concat(OrderedMap.values(parsed_config.objects))
+  #    |> Stream.concat(OrderedMap.values(parsed_config.nats))
+  #    |> Enum.reduce(%{}, &_generate_reference_map/2)
+  #end
+
+  defp get_int_suffix,
+    do: rem(:erlang.unique_integer([:positive]) + 100, 1000)
+
+  defp replace_object_refs(config, name, new_name) do
+    Enum.map(config.objects, fn
+      {_, %{name: ^name} = object} ->
+        {new_name, %{object|name: new_name}}
+
+      {key, %{values: values} = group} ->
+        {key, %{group |
+          values: Enum.map(values, fn
+            {:object, ^name} -> {:object, new_name}
+            { :group, ^name} -> { :group, new_name}
+                       value -> value
+          end)
+        }}
+
+      other -> other
+    end)
+  end
+
+  defp replace_ref_in_map(map, key, value, new_value) do
+    {_, next_map} =
+      Map.get_and_update(map, key, fn
+        nil    -> :pop
+        ^value -> {nil, new_value}
+      end)
+
+    next_map
+  end
+
+  defp replace_nat_refs(config, name, new_name) do
+    Enum.map(config.nats, fn nat ->
+      next_nat =
+        nat
+          |> replace_ref_in_map(:real_source, name, new_name)
+          |> replace_ref_in_map(:mapped_source, name, new_name)
+          |> replace_ref_in_map(:real_destination, name, new_name)
+          |> replace_ref_in_map(:mapped_destination, name, new_name)
+
+      case next_nat do
+        %{service: {^name, mapped}} = nat ->
+          %{nat|service: {new_name, mapped}}
+
+        %{service: {real, ^name}} = nat ->
+          %{nat|service: {real, new_name}}
+
+        other -> other
+      end
+    end)
+  end
+
+  defp replace_acl_refs(config, name, new_name) do
+    Enum.map(config.acls, fn {seq, ace} ->
+      next_ace =
+        ace
+          |> replace_ref_in_map(:protocol, name, new_name)
+          |> replace_ref_in_map(:source, name, new_name)
+          |> replace_ref_in_map(:source_port, name, new_name)
+          |> replace_ref_in_map(:destination, name, new_name)
+          |> replace_ref_in_map(:destination_port, name, new_name)
+
+      {seq, next_ace}
+    end)
+  end
+
+  defp replace_all_refs(config, name, new_name) do
+    config
+      |> replace_object_refs(name, new_name)
+      |> replace_nat_refs(name, new_name)
+      |> replace_acl_refs(name, new_name)
+  end
+
+  def merge_configs(config1, config2) do
+    new_config2 =
+      config2.objects
+        |> OrderedMap.keys
+        |> Stream.filter(& config1[&1] != nil)
+        |> Stream.filter(& config1[&1] != config2[&1])
+        |> Enum.reduce(config2, fn(name, acc) ->
+          replace_all_refs(acc, name, "#{name}-#{get_int_suffix()}")
+        end)
+
+    objects =
+      config1.objects
+        |> Enum.concat(new_config2.objects)
+        |> Enum.uniq
+        |> Enum.into(OrderedMap.new())
+
+    acls1 = Enum.into(config1.acls, %{})
+    acls2 = Enum.into(new_config2.acls, %{})
+
+    acls = Map.merge(acls1, acls2, fn(_k, acl1, acl2) ->
+      aces =
+        acl1.aces
+          |> OrderedMap.values
+          |> Stream.concat(OrderedMap.values(acl2.aces))
+          |> Stream.with_index(1)
+          |> Stream.map(fn {a, i} -> {i, a} end)
+          |> Enum.into(OrderedMap.new())
+
+      %{acl1|aces: aces}
+    end)
+
+    %{config1 |
+      objects: objects,
+         acls: acls,
+         nats: Enum.uniq(config1.nats ++ new_config2.nats),
+    }
+  end
+
+  def lookup_protocol_by_number(number) do
+    Enum.find_value(
+      ip_protocols(),
+      number,
+      fn {str, ^number} -> str
+                      _ -> nil
+    end)
+  end
+
+  defp interface_nat_to_string(nat) do
+    ipv6 = nat.ipv6
+      && " ipv6" || ""
+
+    nat.interface
+      && " interface#{ipv6}" || ""
+  end
+
+  def pat_pool_to_string(nat) do
+    if_nat = interface_nat_to_string(nat)
+
+    mapped_source = nat.mapped_source
+      && " #{nat.mapped_source}" || ""
+
+    extended = nat.extended
+      && " extended" || ""
+
+    flat = nat.flat
+      && " flat" || ""
+
+    include_reserve = nat.include_reserve
+      && " include-reserve" || ""
+
+    round_robin = nat.round_robin
+      && " round-robin" || ""
+
+    [ "pat-pool#{mapped_source}#{extended}#{if_nat}",
+      "#{flat}#{include_reserve}#{round_robin}"
+    ] |> Enum.join
+  end
+
+  def static_nat_suffix_to_string(nat) do
+    mapped_dest =
+      case nat.mapped_destination do
+        {:interface, ipv6} ->
+          if_ipv6 = ipv6 && " ipv6" || ""
+
+          " interface#{if_ipv6}"
+
+        other ->
+          other && " #{other}" || ""
+      end
+
+    service_nat =
+      if nat.service do
+        {real, mapped} = nat.service
+
+        " service #{real} #{mapped}"
+      else
+        ""
+      end
+
+    net_to_net = nat.net_to_net
+      && " net-to-net" || ""
+
+    cond do
+      nat.dns ->
+        " dns"
+
+      real_dest = nat.real_destination ->
+        [ " destination static",
+          "#{real_dest}#{mapped_dest}#{service_nat}#{net_to_net}",
+        ] |> Enum.join(" ")
+
+      true ->
+        service_nat
+    end
+  end
 end
 
 defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.NetworkObject do
@@ -1414,13 +1900,13 @@ defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.NetworkObject do
 
   defp value_to_string(value) do
     case value do
-      {nil, fqdn}        -> "fqdn #{fqdn}"
-      {:v4, fqdn}        -> "fqdn v4 #{fqdn}"
-      {:v6, fqdn}        -> "fqdn v6 #{fqdn}"
-      {ip1,  ip2}        ->
+      {nil, fqdn} -> "fqdn #{fqdn}"
+      {:v4, fqdn} -> "fqdn v4 #{fqdn}"
+      {:v6, fqdn} -> "fqdn v6 #{fqdn}"
+      {ip1,  ip2} ->
         "range #{NetAddr.address(ip1)} #{NetAddr.address(ip2)}"
 
-      %NetAddr.IPv4{length:  32} = ip -> "host #{ip}"
+      %NetAddr.IPv4{length:  32} = ip -> "host #{NetAddr.address(ip)}"
       %NetAddr.IPv6{length: 128} = ip -> "host #{ip}"
       %NetAddr.IPv4{length:   _} = ip ->
         "subnet #{NetAddr.network(ip)} #{NetAddr.subnet_mask(ip)}"
@@ -1430,7 +1916,8 @@ defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.NetworkObject do
   end
 
   def to_string(object) do
-    description = object.description && "#{object.description}\n " || ""
+    description = object.description
+      && "description #{object.description}\n " || ""
 
     value = value_to_string object.value
 
@@ -1439,6 +1926,458 @@ defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.NetworkObject do
     ] |> Enum.join("\n")
   end
 end
+
+defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.NetworkGroup do
+  import Kernel, except: [to_string: 1]
+
+  defp value_to_string(value) do
+    case value do
+      { :group, name} -> "group-object #{name}"
+      {:object, name} -> "network-object object #{name}"
+
+      %NetAddr.IPv4{length: 32} ->
+        "network-object host #{NetAddr.address(value)}"
+
+      %NetAddr.IPv6{length: 128} ->
+        "network-object host #{NetAddr.address(value)}"
+
+      %NetAddr.IPv4{} = v ->
+        "network-object #{NetAddr.address(v)} #{NetAddr.subnet_mask(v)}"
+
+      %NetAddr.IPv6{} = v ->
+        "network-object #{v}"
+    end
+  end
+
+  def to_string(object) do
+    description = object.description
+      && "description #{object.description}\n " || ""
+
+    values =
+      object.values
+        |> Enum.map(&value_to_string/1)
+        |> Enum.join("\n ")
+
+    [ "object-group network #{object.name}",
+      " #{description}#{values}",
+    ] |> Enum.join("\n")
+  end
+end
+
+defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.ServiceObject do
+  import Kernel, except: [to_string: 1]
+
+  alias Firewalk.Cisco.ASA_8_3
+
+  defp port_match_to_string(term) do
+    case term do
+      {    op, port}   -> "#{op} #{port}"
+      {:range, p1, p2} -> "range #{p1} #{p2}"
+    end
+  end
+
+  defp service_to_string(service) do
+    proto_keyword = ASA_8_3.lookup_protocol_by_number service.protocol
+
+    source = service.source
+      && " source #{port_match_to_string(service.source)}" || ""
+
+    dest = service.destination
+      && " destination #{port_match_to_string(service.destination)}" || ""
+
+    "#{proto_keyword}#{source}#{dest}"
+  end
+
+  def to_string(object) do
+    description = object.description
+      && "description #{object.description}\n " || ""
+
+    value = service_to_string object
+
+    [ "object service #{object.name}",
+      " #{description}service #{value}",
+    ] |> Enum.join("\n")
+  end
+end
+
+defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.ServiceGroup do
+  import Kernel, except: [to_string: 1]
+
+  alias Firewalk.Cisco.ASA_8_3
+
+  defp port_match_to_string(term) do
+    case term do
+      {    op, port}   -> "#{op} #{port}"
+      {:range, p1, p2} -> "range #{p1} #{p2}"
+    end
+  end
+
+  defp value_to_string(value) do
+    case value do
+      {:group, name} ->
+        "group-object #{name}"
+
+      {:object, name} ->
+        "service-object object #{name}"
+
+      %ASA_8_3.ServiceObject{protocol: proto, source: s, destination: d} ->
+        proto_keyword =
+          if proto == :tcp_udp do
+            "tcp-udp"
+          else
+            ASA_8_3.lookup_protocol_by_number proto
+          end
+
+        source = s && " source #{port_match_to_string(s)}"      || ""
+        dest   = d && " destination #{port_match_to_string(d)}" || ""
+
+        "service-object #{proto_keyword}#{source}#{dest}"
+    end
+  end
+
+  def to_string(object) do
+    description = object.description
+      && "description #{object.description}\n " || ""
+
+    values =
+      object.values
+        |> Enum.map(&value_to_string/1)
+        |> Enum.join("\n ")
+
+    [ "object-group service #{object.name}",
+      " #{description}#{values}",
+    ] |> Enum.join("\n")
+  end
+end
+
+defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.ProtocolGroup do
+  import Kernel, except: [to_string: 1]
+
+  alias Firewalk.Cisco.ASA_8_3
+
+  defp value_to_string(value) do
+    case value do
+      {:group, name} ->
+        "group-object #{name}"
+
+      proto ->
+        "protocol-object #{ASA_8_3.lookup_protocol_by_number(proto)}"
+    end
+  end
+
+  def to_string(object) do
+    description = object.description
+      && "description #{object.description}\n " || ""
+
+    values =
+      object.values
+        |> Enum.map(&value_to_string/1)
+        |> Enum.join("\n ")
+
+    [ "object-group protocol #{object.name}",
+      " #{description}#{values}",
+    ] |> Enum.join("\n")
+  end
+end
+
+defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.ServiceProtocolGroup do
+  import Kernel, except: [to_string: 1]
+
+  alias Firewalk.Cisco.ASA_8_3
+
+  defp port_match_to_string(term) do
+    case term do
+      {   :eq, port}   -> "eq #{port}"
+      {:range, p1, p2} -> "range #{p1} #{p2}"
+    end
+  end
+
+  defp value_to_string(value) do
+    case value do
+      {:group, name} ->
+        "group-object #{name}"
+
+      port_match ->
+        "port-object #{port_match_to_string(port_match)}"
+    end
+  end
+
+  def to_string(object) do
+    description = object.description
+      && "description #{object.description}\n " || ""
+
+    proto =
+      if object.protocol == :tcp_udp do
+        "tcp-udp"
+      else
+        "#{object.protocol}"
+      end
+
+    values =
+      object.values
+        |> Enum.map(&value_to_string/1)
+        |> Enum.join("\n ")
+
+    [ "object-group service #{object.name} #{proto}",
+      " #{description}#{values}",
+    ] |> Enum.join("\n")
+  end
+end
+
+defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.ICMPGroup do
+  import Kernel, except: [to_string: 1]
+
+  alias Firewalk.Cisco.ASA_8_3
+
+  defp value_to_string(value) do
+    case value do
+      {:group, name} ->
+        "group-object #{name}"
+
+      type ->
+        type_keyword =
+          Enum.find_value(ASA_8_3.icmp_types, fn
+            {str, ^type} -> str
+                       _ -> nil
+          end)
+
+        "icmp-object #{type_keyword}"
+    end
+  end
+
+  def to_string(object) do
+    description = object.description
+      && "description #{object.description}\n " || ""
+
+    values =
+      object.values
+        |> Enum.map(&value_to_string/1)
+        |> Enum.join("\n ")
+
+    [ "object-group icmp-type #{object.name}",
+      " #{description}#{values}",
+    ] |> Enum.join("\n")
+  end
+end
+
+defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.PeriodicTimeRange do
+  import Kernel, except: [to_string: 1]
+
+  alias Firewalk.Cisco.ASA_8_3
+
+  defp days_to_string(days) do
+    case days do
+      d when d in [:daily, :weekdays, :weekend] ->
+        "#{days}"
+
+      _ ->
+        days
+          |> Enum.map(fn d ->
+            %{1 => "Monday",
+              2 => "Tuesday",
+              3 => "Wednesday",
+              4 => "Thursday",
+              5 => "Friday",
+              6 => "Saturday",
+              7 => "Sunday",
+            }[d]
+          end)
+          |> Enum.join(" ")
+      end
+  end
+
+  defp time_to_string(time),
+    do: String.replace("#{time}", ~r/:00$/, "")
+
+  def to_string(trange) do
+    days = days_to_string trange.days
+    from = time_to_string trange.from
+      to = time_to_string trange.to
+
+    [ "time-range #{trange.name}",
+      "periodic #{days} #{from} to #{to}",
+    ] |> Enum.join("\n")
+  end
+end
+
+defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.DynamicObjectNAT do
+  import Kernel, except: [to_string: 1]
+
+  alias Firewalk.Cisco.ASA_8_3
+
+  defp mapped_source_to_string(nat) do
+    if nat.pat_pool do
+      ASA_8_3.pat_pool_to_string nat
+    else
+      ipv6 = nat.ipv6
+        && " ipv6" || ""
+
+      if_nat = nat.interface
+        && " interface#{ipv6}" || ""
+
+      nat.mapped_source
+        && " #{nat.mapped_source}#{if_nat}" || ""
+    end
+  end
+
+  def to_string(nat) do
+    ifpair = nat.real_if
+      && " (#{nat.real_if},#{nat.mapped_if})" || ""
+
+    dns = nat.dns
+      && " dns" || ""
+
+    mapped_source = mapped_source_to_string nat
+
+    [ "object network #{nat.real_source}",
+      " nat#{ifpair} dynamic#{mapped_source}#{dns}",
+    ] |> Enum.join("\n")
+  end
+end
+
+defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.DynamicGlobalNAT do
+  import Kernel, except: [to_string: 1]
+
+  alias Firewalk.Cisco.ASA_8_3
+
+  defp mapped_source_to_string(nat) do
+    if nat.pat_pool do
+      ASA_8_3.pat_pool_to_string(nat)
+    else
+      ipv6 = nat.ipv6
+        && " ipv6" || ""
+
+      if_nat = nat.interface
+        && " interface#{ipv6}" || ""
+
+      nat.mapped_source
+        && " #{nat.mapped_source}#{if_nat}" || ""
+    end
+  end
+
+  def to_string(nat) do
+    ifpair = nat.real_if
+      && " (#{nat.real_if},#{nat.mapped_if})" || ""
+
+    after_auto = nat.after_auto
+      && " after-auto" || ""
+
+    real_source =
+      case nat.real_source do
+        :any -> "any"
+        name -> "object #{name}"
+      end
+
+    mapped_source = mapped_source_to_string nat
+    static_nat_suffix = ASA_8_3.static_nat_suffix_to_string nat
+
+    inactive = nat.inactive
+      && " inactive" || ""
+
+    description = nat.description
+      && " description #{nat.description}" || ""
+
+    [ "nat#{ifpair}#{after_auto} ",
+      "source dynamic #{real_source}",
+      "#{mapped_source}#{static_nat_suffix}#{inactive}#{description}",
+    ] |> Enum.join
+  end
+end
+
+defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.StaticGlobalNAT do
+  import Kernel, except: [to_string: 1]
+
+  alias Firewalk.Cisco.ASA_8_3
+
+  def to_string(nat) do
+    ifpair = nat.real_if
+      && " (#{nat.real_if},#{nat.mapped_if})" || ""
+
+    after_auto = nat.after_auto
+      && " after-auto" || ""
+
+    mapped_source =
+      case nat.mapped_source do
+        {:interface, ipv6} ->
+          if_ipv6 = ipv6 && " ipv6" || ""
+
+          " interface#{if_ipv6}"
+
+        name ->
+          " #{name}"
+      end
+
+    static_nat_suffix = ASA_8_3.static_nat_suffix_to_string nat
+
+    unidirectional = nat.unidirectional
+      && " unidirectional" || ""
+
+    no_proxy_arp = nat.no_proxy_arp
+      && " no-proxy-arp" || ""
+
+    route_lookup = nat.route_lookup
+      && " route-lookup" || ""
+
+    inactive = nat.inactive
+      && " inactive" || ""
+
+    description = nat.description
+      && " description #{nat.description}" || ""
+
+    [ "nat#{ifpair}#{after_auto} ",
+      "source static #{nat.real_source}#{mapped_source}#{static_nat_suffix}",
+      "#{unidirectional}#{no_proxy_arp}#{route_lookup}#{inactive}#{description}",
+    ] |> Enum.join
+  end
+end
+
+defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.StaticObjectNAT do
+  import Kernel, except: [to_string: 1]
+
+  alias Firewalk.Cisco.ASA_8_3
+
+  def to_string(nat) do
+    ifpair = nat.real_if
+      && " (#{nat.real_if},#{nat.mapped_if})" || ""
+
+    mapped_source =
+      case nat.mapped_source do
+        {:interface, ipv6} ->
+          if_ipv6 = ipv6 && " ipv6" || ""
+
+          "interface#{if_ipv6}"
+
+        name when is_binary name ->
+          name
+
+        netaddr ->
+          NetAddr.address netaddr
+      end
+
+    net_to_net = nat.net_to_net
+      && " net-to-net" || ""
+
+    dns = nat.dns
+      && " dns" || ""
+
+    no_proxy_arp = nat.no_proxy_arp
+      && " no-proxy-arp" || ""
+
+    route_lookup = nat.route_lookup
+      && " route-lookup" || ""
+
+    service = nat.protocol
+      && " service #{nat.protocol} #{nat.real_port} #{nat.mapped_port}"
+
+    [ "object network #{nat.real_source}\n",
+      " nat#{ifpair} static #{mapped_source}",
+      "#{net_to_net}#{dns}#{no_proxy_arp}#{route_lookup}#{service}",
+    ] |> Enum.join
+  end
+end
+
+# TODO: defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.Interface
+# TODO: defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.AbsoluteTimeRange
 
 defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.StandardACE do
   import Kernel, except: [to_string: 1]
@@ -1497,39 +2436,29 @@ defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.ExtendedACE do
     end
   end
 
-  defp lookup_protocol_by_number(number) do
-    Enum.find_value(
-      ASA_8_3.ip_protocols,
-      number,
-      fn {str, ^number} -> str
-                      _ -> nil
-    end)
-  end
-
   defp protocol_to_string(proto) do
     case proto do
-      {:object, object} -> "object #{object}"
+      {:object, object} -> "object #{inspect object}"
       { :group,  group} -> "object-group #{group}"
 
       p when p in 0..255 ->
-        lookup_protocol_by_number proto
+        ASA_8_3.lookup_protocol_by_number proto
     end
   end
 
   defp log_level_to_string(level) do
-    string =
-      case level do
-        nil -> ""
-        l   ->
-          string =
-            Enum.find_value(ASA_8_3.log_levels, fn {str, ^l} -> str; _ -> nil end)
+    case level do
+      nil -> ""
+      l   ->
+        string =
+          Enum.find_value(ASA_8_3.log_levels, fn {str, ^l} -> str; _ -> nil end)
 
-          " #{string}"
-      end
+        " #{string}"
+    end
   end
 
   def to_string(%{protocol: proto} = ace) do
-    protocol = protocol_to_string(proto)
+    protocol = protocol_to_string proto
 
          source = ip_match_to_string ace.source
     destination = ip_match_to_string ace.destination
@@ -1562,11 +2491,13 @@ defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.ACLRemark do
     "access-list #{remark.acl_name} remark #{remark.remark}"
   end
 end
+
 defimpl String.Chars, for: Firewalk.Cisco.ASA_8_3.ACL do
   import Kernel, except: [to_string: 1]
 
   def to_string(acl) do
     acl.aces
+      |> OrderedMap.values
       |> Enum.map(&Kernel.to_string/1)
       |> Enum.join("\n")
   end
