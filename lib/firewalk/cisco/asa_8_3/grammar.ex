@@ -257,6 +257,15 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
     ]
   end
 
+  def access_group do
+    [access_group:
+      [ acl_name: ["access-group", acl_name],
+        direction: one_of([:in, :out]),
+        interface: ["interface", nameif_name],
+      ]
+    ]
+  end
+
   def time, do: ~r/^([0-1]?\d|2[0-3]):[0-5]\d$/
 
   def day_of_month, do: 1..31
@@ -538,6 +547,7 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
     one_of [ acl_remark,
              extended_ace,
              standard_ace,
+             access_group,
              interface,
              vlan,
              nameif,
@@ -591,7 +601,7 @@ defmodule Firewalk.Cisco.ASA_8_3.Grammar do
     next_hop =
       [next_hop: one_of([ [~w(is directly), {"connected", NetAddr.ip("0")}],
                           ["via", ipv4],
-                      ])
+                        ])
       ]
 
     last_update = [last_update: [~r/^[0-9:mwdh]+$/]]

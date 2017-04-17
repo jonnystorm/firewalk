@@ -7,14 +7,30 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
   alias Firewalk.Cisco.ASA_8_3.Grammar
 
+  defmodule AccessGroup do
+    defstruct [
+      :acl_name,
+      :direction,
+      :interface,
+    ]
+
+    @type t :: %__MODULE__{
+       acl_name: String.t,
+      direction: :in | :out,
+      interface: String.t,
+    }
+  end
+
   defmodule Interface do
-    defstruct      id: nil,
-                 vlan: nil,
-               nameif: nil,
-       security_level: nil,
-           ip_address: nil,
-      standby_address: nil,
-          description: nil
+    defstruct [
+                   :id,
+                 :vlan,
+               :nameif,
+       :security_level,
+           :ip_address,
+      :standby_address,
+          :description,
+    ]
 
     @type vlan_id :: 1..4094
 
@@ -31,7 +47,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule NetworkObject do
-    defstruct name: nil, value: nil, description: nil
+    defstruct [:name, :value, :description]
 
     @type t :: %__MODULE__{
              name: String.t,
@@ -43,11 +59,13 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule ServiceObject do
-    defstruct name: nil,
-          protocol: nil,
-            source: nil,
-       destination: nil,
-       description: nil
+    defstruct [
+             :name,
+         :protocol,
+           :source,
+      :destination,
+      :description,
+    ]
 
     @type   port_num :: 1..65535
     @type  icmp_type :: 0..255
@@ -66,7 +84,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule NetworkGroup do
-    defstruct name: nil, values: nil, description: nil
+    defstruct [:name, :values, :description]
 
     @type object_or_group_ref :: {:object | :group, String.t}
 
@@ -78,7 +96,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule AbsoluteTimeRange do
-    defstruct name: nil, start: nil, end: nil
+    defstruct [:name, :start, :end]
 
     @type t :: %__MODULE__{
        name: String.t,
@@ -88,7 +106,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule PeriodicTimeRange do
-    defstruct name: nil, days: nil, from: nil, to: nil
+    defstruct [:name, :days, :from, :to]
 
     @type day_of_week :: 1..7
 
@@ -101,7 +119,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule ICMPGroup do
-    defstruct name: nil, values: nil, description: nil
+    defstruct [:name, :values, :description]
 
     @type icmp_type :: 0..255
     @type group_ref :: {:group, String.t}
@@ -114,7 +132,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule ServiceProtocolGroup do
-    defstruct name: nil, protocol: nil, values: nil, description: nil
+    defstruct [:name, :protocol, :values, :description]
 
     @type   port_num :: 1..65535
     @type port_match :: {:eq, port_num}
@@ -129,7 +147,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule ServiceGroup do
-    defstruct name: nil, values: nil, description: nil
+    defstruct [:name, :values, :description]
 
     @type      service_object :: Firewalk.Cisco.ASA.ServiceObject.t
     @type object_or_group_ref :: {:object | :group, String.t}
@@ -142,7 +160,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule ProtocolGroup do
-    defstruct name: nil, values: nil, description: nil
+    defstruct [:name, :values, :description]
 
     @type  ip_proto :: 0..255
     @type group_ref :: {:group, String.t}
@@ -155,21 +173,23 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule StaticGlobalNAT do
-    defstruct    real_if: nil,
-               mapped_if: nil,
-              after_auto: nil,
-             real_source: nil,
-           mapped_source: nil,
-        real_destination: nil,
-      mapped_destination: nil,
-                     dns: nil,
-                 service: nil,
-              net_to_net: nil,
-          unidirectional: nil,
-            no_proxy_arp: nil,
-            route_lookup: nil,
-                inactive: nil,
-             description: nil
+    defstruct [
+                 :real_if,
+               :mapped_if,
+              :after_auto,
+             :real_source,
+           :mapped_source,
+        :real_destination,
+      :mapped_destination,
+                     :dns,
+                 :service,
+              :net_to_net,
+          :unidirectional,
+            :no_proxy_arp,
+            :route_lookup,
+                :inactive,
+             :description,
+    ]
 
     @type t :: %__MODULE__{
                  real_if: nil | String.t,
@@ -191,17 +211,19 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule StaticObjectNAT do
-    defstruct    real_if: nil,
-               mapped_if: nil,
-             real_source: nil,
-           mapped_source: nil,
-              net_to_net: nil,
-                     dns: nil,
-            no_proxy_arp: nil,
-            route_lookup: nil,
-                protocol: nil,
-               real_port: nil,
-             mapped_port: nil
+    defstruct [
+            :real_if,
+          :mapped_if,
+        :real_source,
+      :mapped_source,
+         :net_to_net,
+                :dns,
+       :no_proxy_arp,
+       :route_lookup,
+           :protocol,
+          :real_port,
+        :mapped_port,
+    ]
 
     @type port_num :: 1..65535
 
@@ -221,25 +243,27 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule DynamicGlobalNAT do
-    defstruct    real_if: nil,
-               mapped_if: nil,
-              after_auto: nil,
-             real_source: nil,
-           mapped_source: nil,
-                pat_pool: nil,
-                extended: nil,
-               interface: nil,
-                    ipv6: nil,
-                    flat: nil,
-         include_reserve: nil,
-             round_robin: nil,
-        real_destination: nil,
-      mapped_destination: nil,
-                     dns: nil,
-                 service: nil,
-              net_to_net: nil,
-                inactive: nil,
-             description: nil
+    defstruct [
+                 :real_if,
+               :mapped_if,
+              :after_auto,
+             :real_source,
+           :mapped_source,
+                :pat_pool,
+                :extended,
+               :interface,
+                    :ipv6,
+                    :flat,
+         :include_reserve,
+             :round_robin,
+        :real_destination,
+      :mapped_destination,
+                     :dns,
+                 :service,
+              :net_to_net,
+                :inactive,
+             :description,
+    ]
 
     @type t :: %__MODULE__{
                  real_if: nil | String.t,
@@ -265,18 +289,20 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule DynamicObjectNAT do
-    defstruct    real_if: nil,
-               mapped_if: nil,
-             real_source: nil,
-           mapped_source: nil,
-                pat_pool: nil,
-                extended: nil,
-                    flat: nil,
-         include_reserve: nil,
-             round_robin: nil,
-               interface: nil,
-                    ipv6: nil,
-                     dns: nil
+    defstruct [
+              :real_if,
+            :mapped_if,
+          :real_source,
+        :mapped_source,
+             :pat_pool,
+             :extended,
+                 :flat,
+      :include_reserve,
+          :round_robin,
+            :interface,
+                 :ipv6,
+                  :dns,
+    ]
 
     @type t :: %__MODULE__{
                  real_if: nil | String.t,
@@ -295,7 +321,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule StandardACE do
-    defstruct acl_name: nil, action: nil, criterion: nil
+    defstruct [:acl_name, :action, :criterion]
 
     @type t :: %__MODULE__{
        acl_name: String.t,
@@ -305,19 +331,21 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule ExtendedACE do
-    defstruct acl_name: nil,
-                action: nil,
-              protocol: nil,
-                source: nil,
-           source_port: nil,
-           destination: nil,
-      destination_port: nil,
-                   log: nil,
-             log_level: nil,
-          log_interval: nil,
-           log_disable: nil,
-            time_range: nil,
-              inactive: nil
+    defstruct [
+              :acl_name,
+                :action,
+              :protocol,
+                :source,
+           :source_port,
+           :destination,
+      :destination_port,
+                   :log,
+             :log_level,
+          :log_interval,
+           :log_disable,
+            :time_range,
+              :inactive,
+    ]
 
     @type   ip_proto :: 0..255
     @type   port_num :: 1..65535
@@ -379,15 +407,17 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   end
 
   defmodule Route do
-    defstruct      type: nil,
-      candidate_default: nil,
-             replicated: nil,
-            destination: nil,
-         admin_distance: nil,
-                 metric: nil,
-               next_hop: nil,
-            last_update: nil,
-              interface: nil
+    defstruct [
+                   :type,
+      :candidate_default,
+             :replicated,
+            :destination,
+         :admin_distance,
+                 :metric,
+               :next_hop,
+            :last_update,
+              :interface,
+    ]
 
     @type route_type :: :local
                       | :connected
@@ -499,6 +529,13 @@ defmodule Firewalk.Cisco.ASA_8_3 do
        mask = NetAddr.address mask
 
     NetAddr.ip(address, mask)
+  end
+
+  def access_group(ast) do
+    %AccessGroup{}
+    |> Map.put(:acl_name, extract(ast[:acl_name]))
+    |> Map.put(:direction, extract(ast[:direction]))
+    |> Map.put(:interface, extract(ast[:interface]))
   end
 
   def interface(ast) do
@@ -1144,6 +1181,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       end
 
     case {type1, type2} do
+      {          :access_group,             nil} -> :access_group
       {           :dyn_gbl_nat,             nil} -> :dynamic_global_nat
       {        :static_gbl_nat,             nil} -> :static_global_nat
       {          :net_obj_decl,    :dyn_obj_nat} -> :dynamic_object_nat
@@ -1227,9 +1265,9 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
   defp lines_into_models({type, sub_asts} = ast1, ast2) do
     case aggregate_type(ast1, ast2) do
-      nil      ->
+      nil ->
         case aggregate_type(ast1, nil) do
-          nil   ->
+          nil ->
             :ok = Logger.warn("Unable to aggregate line: #{inspect sub_asts}")
 
             {nil, ast2}
@@ -1241,7 +1279,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
             {{agg_type, [ast1]}, ast2}
         end
 
-      ^type    ->
+      ^type ->
         if ast2 != nil do
           {nil, accrete_model(ast1, ast2)}
         else
@@ -1299,6 +1337,9 @@ defmodule Firewalk.Cisco.ASA_8_3 do
     |> Stream.filter(fn nil -> false; x -> x end)
   end
 
+  defp access_group_model_to_struct({:access_group, ast}),
+    do: access_group ast
+
   defp interface_model_to_struct({:interface, ast}),
     do: interface ast
 
@@ -1330,6 +1371,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
   defp model_type({name, _}) do
     case name do
       :acl                -> :acl
+      :access_group       -> :access_group
       :interface          -> :interface
       :static_global_nat  -> :nat
       :static_object_nat  -> :nat
@@ -1348,10 +1390,14 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       |> aggregate(&lines_into_models/2)
       |> Enum.group_by(&model_type/1)
 
-       acl_models = models[:acl]       || []
-       nat_models = models[:nat]       || []
-    object_models = models[:object]    || []
-        if_models = models[:interface] || []
+    access_group_models = models[:access_group] || []
+             acl_models = models[:acl]          || []
+             nat_models = models[:nat]          || []
+          object_models = models[:object]       || []
+              if_models = models[:interface]    || []
+
+    access_groups =
+      Enum.map(access_group_models, &access_group_model_to_struct/1)
 
     interfaces = Enum.map(if_models, &interface_model_to_struct/1)
 
@@ -1374,10 +1420,11 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       |> Stream.map(& {&1.name, &1})
       |> Enum.into(OrderedMap.new)
 
-    %{      acls: acls,
-            nats: nats,
-         objects: objects,
-      interfaces: interfaces,
+    %{access_groups: access_groups,
+               acls: acls,
+               nats: nats,
+            objects: objects,
+         interfaces: interfaces,
     }
   end
 
@@ -1673,6 +1720,41 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
   def explode(object, objects, pattern),
     do: _explode([object], [], objects, pattern)
+
+  defp get_value_gracefully(accessible, key, default)
+  defp get_value_gracefully(map, key, default)
+      when is_map(map),
+    do: Map.get(map, key, default)
+
+  defp get_value_gracefully(keywords, key, default)
+      when is_list(keywords),
+    do: Keyword.get(keywords, key, default)
+
+  defp get_value_gracefully(_accessible, _key, default),
+    do: default
+
+  def atomize(object, objects)
+
+  def atomize(%ACLRemark{}, _objects),
+    do: []
+
+  def atomize(%ExtendedACE{} = ace, objects) do
+    ace
+    |> explode(objects)
+    |> Enum.map(fn a ->
+      new_kvs =
+        a
+        |> Map.from_struct
+        |> Enum.map(fn {k, v} ->
+          deref_v = dereference(v, objects)
+          new_v = get_value_gracefully(deref_v, :value, deref_v)
+
+          {k, new_v}
+        end)
+
+      struct!(ace, new_kvs)
+    end)
+  end
 
   defp strip_objects(objects) do
     Enum.map(objects, fn

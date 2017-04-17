@@ -13,8 +13,8 @@ defmodule Firewalk.Cisco.ASA_8_3Test do
 
   test "Correctly aggregates several aces from the same ACL" do
     lines = """
-      access-list outside-egress extended permit udp object customer-tunnel-endpoint eq isakmp object cci-tunnel-endpoint eq isakmp log
-      access-list outside-egress extended permit esp object customer-tunnel-endpoint object cci-tunnel-endpoint log
+      access-list outside-egress extended permit udp object customer-tunnel-endpoint eq isakmp object tunnel-endpoint eq isakmp log
+      access-list outside-egress extended permit esp object customer-tunnel-endpoint object tunnel-endpoint log
       access-list outside-egress extended permit ip any any log
     """ |> String.split("\n")
 
@@ -273,5 +273,45 @@ defmodule Firewalk.Cisco.ASA_8_3Test do
     config2 = %{interfaces: [], objects: OrderedMap.new, acls: %{}, nats: []}
 
     assert merge_configs(config1, config2) == config1
+  end
+
+  test "Atomizes an ACE" do
+    a = NetAddr.ip "192.0.2.1"
+    b = NetAddr.ip "198.51.100.0/24"
+
+    objects =
+      [ {"a", %NetworkObject{name: "a", value: a}},
+        {"b", %NetworkObject{name: "b", value: b}},
+        {"one", %NetworkGroup{
+            name: "one",
+            values: [{:object, "a"}, {:object, "b"}]
+          }
+        },
+      ] |> Enum.into(OrderedMap.new)
+
+    ace = %ExtendedACE{
+      acl_name: "test",
+      action: :permit, protocol: 0,
+      source: {:group, "one"}, destination: {:group, "one"}
+    }
+
+    assert atomize(ace, objects) ==
+      [ %ExtendedACE{
+          acl_name: "test",
+          action: :permit, protocol: 0, source: a, destination: a
+        },
+        %ExtendedACE{
+          acl_name: "test",
+          action: :permit, protocol: 0, source: a, destination: b
+        },
+        %ExtendedACE{
+          acl_name: "test",
+          action: :permit, protocol: 0, source: b, destination: a
+        },
+        %ExtendedACE{
+          acl_name: "test",
+          action: :permit, protocol: 0, source: b, destination: b
+        },
+      ]
   end
 end

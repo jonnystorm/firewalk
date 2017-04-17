@@ -112,22 +112,21 @@ defmodule Firewalk do
 
   defp merge_objects(objects, new_objects) do
     Enum.reduce(new_objects, objects, fn(new_object, acc) ->
-      {_, new_acc} =
-        OrderedMap.get_and_update(acc, new_object.name, fn
-          nil ->
-            {nil, new_object}
+      acc
+      |> OrderedMap.get_and_update(new_object.name, fn
+        nil ->
+          {nil, new_object}
 
-          ^new_object ->
-            {nil, new_object}
+        ^new_object ->
+          {nil, new_object}
 
-          existing ->
-            :ok = Logger.error("Unable to create new object while splitting ACE by interface:\n#{new_object}")
-            :ok = Logger.error("Object #{new_object.name} already exists:\n#{existing}")
+        existing ->
+          :ok = Logger.error("Unable to create new object while splitting ACE by interface:\n#{new_object}")
+          :ok = Logger.error("Object #{new_object.name} already exists:\n#{existing}")
 
-            existing
-        end)
-
-      new_acc
+          existing
+      end)
+      |> elem(1)
     end)
   end
 
