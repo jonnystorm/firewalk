@@ -13,6 +13,7 @@ defmodule Firewalk.Mixfile do
           :logger,
           :frank,
           :ordered_map,
+          :poison,
         ],
         ignore_warnings: "dialyzer.ignore",
         flags: [
@@ -26,12 +27,23 @@ defmodule Firewalk.Mixfile do
   end
 
   def application do
-    [applications: [:logger, :frank, :ordered_map]]
+    [ applications: [
+        :logger,
+        :frank,
+        :ordered_map,
+        :poison,
+      ],
+    ]
   end
 
   defp deps do
-    [ {      :frank, git: "https://github.com/jonnystorm/frank.git"},
-      {:ordered_map, git: "https://github.com/jonnystorm/ordered-map-elixir.git"},
+    [ { :frank,
+        git: "https://github.com/jonnystorm/frank.git"
+      },
+      { :ordered_map,
+        git: "https://github.com/jonnystorm/ordered-map-elixir.git"
+      },
+      {:poison, "~> 3.1"},
     ]
   end
 end

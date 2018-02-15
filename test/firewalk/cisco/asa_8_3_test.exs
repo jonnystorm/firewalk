@@ -314,4 +314,38 @@ defmodule Firewalk.Cisco.ASA_8_3Test do
         },
       ]
   end
+
+  test "Coalesce an atomized ACE" do
+    a = NetAddr.ip "192.0.2.1"
+    b = NetAddr.ip "198.51.100.0/24"
+
+    objects =
+      [ {"a", %NetworkObject{name: "a", value: a}},
+        {"b", %NetworkObject{name: "b", value: b}},
+        {"one", %NetworkGroup{
+            name: "one",
+            values: [{:object, "a"}, {:object, "b"}]
+          }
+        },
+      ] |> Enum.into(OrderedMap.new)
+
+    atomized_ace =
+      %ExtendedACE{
+        acl_name: "test",
+        action: :permit,
+        protocol: 0,
+        source: {:group, "one"},
+        destination: {:group, "one"},
+      } |> atomize(objects)
+
+    assert coalesce(atomized_ace) ==
+      %{acl_name: "test",
+        action: :permit,
+        protocol: [0],
+        source: [a, b],
+        source_port: [],
+        destination: [a, b],
+        destination_port: [],
+      }
+  end
 end
