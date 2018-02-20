@@ -17,8 +17,11 @@ defmodule Firewalk do
                           _ -> nil
       end
 
-    next_node
-      && "  #{inspect group_name} -> #{inspect next_node};"
+    if next_node do
+      "  #{inspect group_name} -> #{inspect next_node};"
+    else
+      nil
+    end
   end
 
   defp values_to_dot(values, group_name) do
@@ -61,21 +64,35 @@ defmodule Firewalk do
           |> Enum.map(fn {if_, [source|_] = deps} ->
             source_ref = {:group, source.name}
 
-            {%{ace|acl_name: "#{if_}-ingress", source: source_ref}, deps}
+            { %{ace |
+                acl_name: "#{if_}-ingress",
+                source: source_ref
+              },
+              deps
+            }
           end)
 
-        %{source: source, destination: dest} when is_atom source ->
+        %{source: source, destination: _dest}
+            when is_atom source ->
           routes
           |> Stream.map(& &1.interface)
           |> Stream.filter(& &1 != nil)
           |> Enum.uniq
           |> Enum.reduce([], fn
             # TODO: Also exclude interface to which egress ACL was applied.
-            (if_, acc) when if_ in ~w(Null0 stateful failover) ->
+            (if_, acc)
+                when if_ in ~w(Null0 stateful failover) ->
               acc
 
             (if_, acc) ->
-              [{%{ace|acl_name: "#{if_}-ingress", source: source}, []} | acc]
+              [ { %{ace |
+                    acl_name: "#{if_}-ingress",
+                    source: source
+                  },
+                  []
+                }
+                | acc
+              ]
           end)
 
         %{source: source} ->
@@ -92,16 +109,19 @@ defmodule Firewalk do
     end)
   end
 
-  defp split_tcp_udp_service_groups(objects) do
-  end
+  #defp split_tcp_udp_service_groups(objects) do
+  #end
 
-  defp explode_aces_with_dm_inline_groups(aces, objects),
-    do: Enum.flat_map(aces, &ASA_8_3.explode(&1, objects, "DM_INLINE_"))
+  defp explode_aces_with_dm_inline_groups(aces, objects) do
+    Enum.flat_map aces,
+      &ASA_8_3.explode(&1, objects, "DM_INLINE_")
+  end
 
   defp scrub_acl_remarks(aces) do
     Enum.map(aces, fn
       %{remark: remark} = acl_remark ->
-        scrubbed = String.replace(remark, ~r/[^a-zA-Z\d\s]+/, "")
+        scrubbed =
+          String.replace(remark, ~r/[^a-zA-Z\d\s]+/, "")
 
         %{acl_remark|remark: scrubbed}
 
@@ -111,7 +131,8 @@ defmodule Firewalk do
   end
 
   defp merge_objects(objects, new_objects) do
-    Enum.reduce(new_objects, objects, fn(new_object, acc) ->
+    new_objects
+    |> Enum.reduce(objects, fn(new_object, acc) ->
       acc
       |> OrderedMap.get_and_update(new_object.name, fn
         nil ->
@@ -136,7 +157,10 @@ defmodule Firewalk do
     |> Stream.map(fn {e, i} -> {i, e} end)
   end
 
-  defp append_ace_to_acl(%{acl_name: name} = ace, %{name: name} = acl) do
+  defp append_ace_to_acl(
+    %{acl_name: name} = ace,
+    %{name: name}     = acl
+  ) do
     next_seq = acl.aces.size + 1
 
     acl.aces
