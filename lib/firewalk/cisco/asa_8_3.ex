@@ -1820,6 +1820,8 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
   def reference(object) do
     case object do
+      %ServiceObject{}         -> object
+      %{name:  nil}            -> object
       %{name: name, values: _} -> {:group, name}
       %{name: name}            -> {:object, name}
       _                        -> object
@@ -1830,9 +1832,6 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
   def ungroup(object, objects, pattern) do
     case dereference(object, objects) do
-      %ServiceGroup{} ->
-        [object]
-
       %{name: name, values: values} = group ->
         if name =~ pattern do
           values
@@ -1850,30 +1849,50 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
   defp _explode(terms, _last_terms, objects, pattern) do
     terms
-    |> Enum.flat_map(&ungroup(&1, objects, pattern))
+    |> Enum.flat_map(fn t ->
+      case t do
+        %ServiceObject{protocol: :tcp_udp} ->
+          [%{t|protocol: 6}, %{t|protocol: 17}]
+        _ ->
+          ungroup(t, objects, pattern)
+      end
+    end)
     |> _explode(terms, objects, pattern)
   end
 
-  # TODO: Split tcp-udp service groups and create new ACEs
   def explode(term, objects, pattern \\ "")
+
   def explode(%ExtendedACE{} = ace, objects, pattern) do
     fun = fn x ->
-        x
-        |> ungroup(objects, pattern)
-        |> Enum.map(&reference/1)
-      end
+      x
+      |> explode(objects, pattern)
+      |> Enum.map(&reference/1)
+    end
 
     for proto <- fun.(ace.protocol),
           src <- fun.(ace.source),
         sport <- fun.(ace.source_port),
           dst <- fun.(ace.destination),
-        dport <- fun.(ace.destination_port),
-      do: %{ace |   protocol: proto,
+        dport <- fun.(ace.destination_port)
+    do
+      case proto do
+        %ServiceObject{} ->
+          %{ace |   protocol: proto.protocol,
+                      source: src,
+                 source_port: proto.source,
+                 destination: dst,
+            destination_port: proto.destination,
+          }
+
+        _ ->
+          %{ace |   protocol: proto,
                       source: src,
                  source_port: sport,
                  destination: dst,
             destination_port: dport,
           }
+      end
+    end
   end
 
   def explode(object, objects, pattern),
@@ -1973,6 +1992,7 @@ defmodule Firewalk.Cisco.ASA_8_3 do
       |> Map.get(:aces)
       |> OrderedMap.values
       |> Stream.map(& {"#{&1}", atomize(&1, objects)})
+      |> Stream.filter(fn {_, v} -> v != [] end)
       |> Stream.map(fn {k, vs} -> {k, coalesce(vs)} end)
       |> Enum.flat_map(fn
         {key, %{criterion: _} = ace} ->
@@ -2000,10 +2020,12 @@ defmodule Firewalk.Cisco.ASA_8_3 do
 
           str_ip =
             &Enum.map(&1, fn
-              :any  -> "0.0.0.0/0"
-              :any4 -> "0.0.0.0/0"
-              :any6 -> "::/0"
-              addr  ->"#{addr}"
+              :any           -> "0.0.0.0/0"
+              :any4          -> "0.0.0.0/0"
+              :any6          -> "::/0"
+              {:v4, host}    -> host
+              {addr1, addr2} -> "#{addr1}/32-#{addr2}/32"
+              addr           -> "#{addr}"
             end)
 
           str_port =
@@ -2448,7 +2470,7 @@ do
         "service-object object #{name}"
 
       %ASA_8_3.ServiceObject{} = object ->
-        p = object.proto
+        p = object.protocol
 
         proto_keyword =
           if p == :tcp_udp do

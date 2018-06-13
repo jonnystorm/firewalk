@@ -140,6 +140,8 @@ defmodule Firewalk.Cisco.ASA_8_3Test do
   test "Explodes an ACE" do
     objects =
       [ {"one", %NetworkGroup{name: "one", values: [{:object, "a"}, {:object, "b"}]}},
+        {"a", %NetworkObject{name: "a", value: NetAddr.ip("192.0.2.1")}},
+        {"b", %NetworkObject{name: "b", value: NetAddr.ip("198.51.100.1")}},
       ] |> Enum.into(OrderedMap.new)
 
     ace = %ExtendedACE{acl_name: "test",
